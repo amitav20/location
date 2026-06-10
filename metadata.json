@@ -1,0 +1,10 @@
+{
+  "name": "Location-Based Social & Business Platform",
+  "description": "A comprehensive, location-aware social network and local business directory with real-time feeds, interactive maps, text and media posts, stories, chat messaging, events registration, product marketplace, and a super admin panel.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
