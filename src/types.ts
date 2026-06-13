@@ -201,6 +201,11 @@ export interface Business {
   distanceKm?: number;
   averageRating?: number;
   followersCount?: number;
+  // Custom brand micro-site parameters
+  themeVibe?: string; // 'minimal' | 'vintage' | 'neon' | 'organic'
+  tagline?: string;
+  instagramUrl?: string;
+  twitterUrl?: string;
 }
 
 // Products & Offers (Marketplace)

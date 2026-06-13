@@ -32,6 +32,127 @@ interface BusinessPanelProps {
   triggerNotificationRefresh: () => void;
 }
 
+export interface ThemeConfig {
+  wrapper: string;
+  card: string;
+  badgeBg: string;
+  badgeTextColor: string;
+  accentText: string;
+  primaryButton: string;
+  bannerText: string;
+  footerBorder: string;
+  subTitleColor: string;
+  accentColor: string;
+  pillBg: string;
+  checkoutBg: string;
+  navTabActive: string;
+  iconBg: string;
+  iconColor: string;
+  priceText: string;
+  starColor: string;
+  headerBorder: string;
+  inputBg: string;
+  secondaryButton: string;
+}
+
+export function getThemeClasses(vibe?: string): ThemeConfig {
+  switch (vibe) {
+    case 'vintage':
+      return {
+        wrapper: "bg-[#faf6ee] text-amber-950 font-serif p-4 md:p-6 rounded-3xl",
+        card: "bg-[#fcfaf5] border border-amber-200/80 shadow-[2px_4px_12px_rgba(139,90,43,0.06)] rounded-3xl p-4",
+        badgeBg: "bg-emerald-850",
+        badgeTextColor: "text-amber-50",
+        accentText: "text-amber-900 font-bold",
+        primaryButton: "bg-emerald-800 hover:bg-emerald-950 text-amber-50 rounded-xl px-4 py-2 text-xs font-bold font-serif transition-colors shadow-sm cursor-pointer",
+        bannerText: "text-amber-50 font-serif font-black",
+        footerBorder: "border-amber-200/60",
+        subTitleColor: "text-amber-800 font-serif",
+        accentColor: "emerald-800",
+        pillBg: "bg-amber-100/70 text-amber-900 border border-amber-200/45",
+        checkoutBg: "bg-[#fdfbf7] border-amber-200/80 shadow-xl",
+        navTabActive: "bg-emerald-800 text-[#fcfaf5] shadow-md font-serif font-bold",
+        iconBg: "bg-emerald-50",
+        iconColor: "text-emerald-850",
+        priceText: "text-amber-950 font-serif font-bold text-sm",
+        starColor: "text-amber-600",
+        headerBorder: "border-amber-250/50",
+        inputBg: "bg-[#f6ebd9]/80 border-[#e8d7be] placeholder-amber-800/40 text-amber-950 focus:bg-white",
+        secondaryButton: "bg-[#eedfc5] hover:bg-[#e4cead] text-amber-950 font-serif"
+      };
+    case 'neon':
+      return {
+        wrapper: "bg-[#030107] text-slate-100 font-mono p-4 md:p-6 rounded-3xl border border-fuchsia-950/40 shadow-[inset_0_0_80px_rgba(217,70,239,0.03)]",
+        card: "bg-[#0b071a]/95 border border-fuchsia-900/35 shadow-[0_4px_20px_rgba(217,70,239,0.08)] rounded-3xl p-4",
+        badgeBg: "bg-fuchsia-600",
+        badgeTextColor: "text-white",
+        accentText: "text-fuchsia-400 font-bold",
+        primaryButton: "bg-fuchsia-600 hover:bg-fuchsia-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.5)] rounded-xl px-4 py-2 text-xs font-bold font-mono transition-colors cursor-pointer",
+        bannerText: "text-transparent bg-clip-text bg-gradient-to-r from-fuchsia-400 via-rose-300 to-cyan-400 font-mono font-black",
+        footerBorder: "border-fuchsia-950/40",
+        subTitleColor: "text-rose-400 font-mono",
+        accentColor: "fuchsia-500",
+        pillBg: "bg-fuchsia-950/50 text-fuchsia-300 border border-fuchsia-850/40",
+        checkoutBg: "bg-[#070312]/95 border-fuchsia-900/50 shadow-2xl",
+        navTabActive: "bg-fuchsia-600 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)] font-mono font-bold",
+        iconBg: "bg-fuchsia-950/40",
+        iconColor: "text-fuchsia-400",
+        priceText: "text-cyan-400 font-mono font-bold text-sm",
+        starColor: "text-fuchsia-400",
+        headerBorder: "border-fuchsia-950",
+        inputBg: "bg-slate-900 border-fuchsia-950/80 placeholder-slate-500 text-slate-100 focus:border-fuchsia-600",
+        secondaryButton: "bg-slate-900 hover:bg-slate-850 text-slate-300"
+      };
+    case 'organic':
+      return {
+        wrapper: "bg-[#f5f7f5] text-stone-900 font-sans p-4 md:p-6 rounded-3xl",
+        card: "bg-white border border-emerald-900/10 shadow-[0_4px_15px_rgba(44,76,56,0.03)] rounded-3xl p-4",
+        badgeBg: "bg-[#274833]",
+        badgeTextColor: "text-white",
+        accentText: "text-[#274833] font-bold",
+        primaryButton: "bg-[#274833] hover:bg-[#1a3222] text-stone-105 rounded-xl px-4 py-2 text-xs font-bold transition-colors cursor-pointer",
+        bannerText: "text-white font-sans font-black",
+        footerBorder: "border-emerald-950/10",
+        subTitleColor: "text-[#274833] font-semibold",
+        accentColor: "[#274833]",
+        pillBg: "bg-[#ebf3ed] text-[#1e3b28] border border-[#cee2d4]",
+        checkoutBg: "bg-[#f8fbf9] border-emerald-900/10 shadow-xl",
+        navTabActive: "bg-[#274833] text-[#ffffff] shadow-md font-bold",
+        iconBg: "bg-[#ebf3ed]",
+        iconColor: "text-[#274833]",
+        priceText: "text-[#1a3222] font-semibold text-sm",
+        starColor: "text-amber-500",
+        headerBorder: "border-emerald-950/15",
+        inputBg: "bg-[#eff1ef] border-stone-200 placeholder-stone-400 text-stone-900 focus:bg-white",
+        secondaryButton: "bg-stone-100 hover:bg-stone-200 text-stone-700"
+      };
+    case 'minimal':
+    default:
+      return {
+        wrapper: "bg-gray-50/50 text-gray-800 font-sans p-4 md:p-6 rounded-2xl",
+        card: "bg-white border border-gray-150 rounded-2xl p-4 shadow-sm",
+        badgeBg: "bg-teal-650",
+        badgeTextColor: "text-white",
+        accentText: "text-teal-600 font-bold",
+        primaryButton: "bg-teal-600 hover:bg-teal-750 text-white rounded-xl px-4 py-2 text-xs font-bold transition-colors cursor-pointer",
+        bannerText: "text-white font-sans font-black",
+        footerBorder: "border-gray-150",
+        subTitleColor: "text-teal-650 font-semibold",
+        accentColor: "teal-600",
+        pillBg: "bg-teal-50 text-teal-600 border border-teal-100/50",
+        checkoutBg: "bg-white border-gray-150 shadow-xl",
+        navTabActive: "bg-teal-600 text-white shadow-sm font-bold",
+        iconBg: "bg-teal-50",
+        iconColor: "text-teal-600",
+        priceText: "text-gray-905 font-bold text-sm",
+        starColor: "text-amber-550",
+        headerBorder: "border-gray-150",
+        inputBg: "bg-gray-50 border-gray-150 placeholder-gray-400 text-gray-700 focus:bg-white",
+        secondaryButton: "bg-gray-50 hover:bg-gray-100 text-gray-750"
+      };
+  }
+}
+
 export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefresh }: BusinessPanelProps) {
   const [activeSubTab, setActiveSubTab] = useState<'directory' | 'marketplace' | 'cart' | 'dashboard'>('directory');
   
@@ -59,6 +180,12 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderMessage, setOrderMessage] = useState<string>('');
 
+  // Active storefront coupon promo engine
+  const [promoCode, setPromoCode] = useState<string>('');
+  const [activeDiscountPct, setActiveDiscountPct] = useState<number>(0);
+  const [appliedPromo, setAppliedPromo] = useState<string>('');
+  const [promoError, setPromoError] = useState<string>('');
+
   // Owners Business Dashboard state
   const [dashData, setDashData] = useState<any>(null);
   const [showRegForm, setShowRegForm] = useState<boolean>(false);
@@ -81,6 +208,10 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   const [editShopWeb, setEditShopWeb] = useState<string>('');
   const [editShopCover, setEditShopCover] = useState<string>('');
   const [editShopLogo, setEditShopLogo] = useState<string>('');
+  const [editShopThemeVibe, setEditShopThemeVibe] = useState<string>('minimal');
+  const [editShopTagline, setEditShopTagline] = useState<string>('');
+  const [editShopInstagram, setEditShopInstagram] = useState<string>('');
+  const [editShopTwitter, setEditShopTwitter] = useState<string>('');
 
   // Editing Product fields
   const [editProdName, setEditProdName] = useState<string>('');
@@ -165,6 +296,10 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     setShopActiveTab('catalog');
     setShopCategoryFilter('');
     setShopSearchFilter('');
+    setPromoCode('');
+    setActiveDiscountPct(0);
+    setAppliedPromo('');
+    setPromoError('');
     try {
       const comments = await api.getReviews(biz.id);
       setReviews(comments);
@@ -178,6 +313,36 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
       setShopOffers(offrs || []);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleApplyPromo = () => {
+    setPromoError('');
+    if (!promoCode.trim()) {
+      setPromoError('Please enter a coupon code.');
+      return;
+    }
+    const matchingOffer = shopOffers.find(
+      (o) => o.promoCode && o.promoCode.toLowerCase() === promoCode.trim().toLowerCase()
+    );
+    if (matchingOffer) {
+      setActiveDiscountPct(matchingOffer.discountPercent || 10);
+      setAppliedPromo(matchingOffer.promoCode.toUpperCase());
+      setPromoError('');
+      alert(`Success! "${matchingOffer.promoCode.toUpperCase()}" applied. You saved ${matchingOffer.discountPercent}%!`);
+    } else {
+      const codeUpper = promoCode.trim().toUpperCase();
+      if (codeUpper === 'WELCOME10') {
+        setActiveDiscountPct(10);
+        setAppliedPromo('WELCOME10');
+        alert('Promo code "WELCOME10" applied successfully! 10% saved!');
+      } else if (codeUpper === 'LOCAL20') {
+        setActiveDiscountPct(20);
+        setAppliedPromo('LOCAL20');
+        alert('Promo code "LOCAL20" applied successfully! 20% saved!');
+      } else {
+        setPromoError('Invalid coupon code for this storefront.');
+      }
     }
   };
 
@@ -241,9 +406,13 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     if (cart.length === 0) return;
     try {
       const items = cart.map((i) => ({ productId: i.productId, quantity: i.quantity }));
-      await api.checkoutCart(items, checkoutAddress || '10 Main Boulevard Hub Address');
+      const discountNote = appliedPromo ? ` [Coupon: ${appliedPromo} (-${activeDiscountPct}%)]` : '';
+      await api.checkoutCart(items, (checkoutAddress || '10 Main Boulevard Hub Address') + discountNote);
       setCart([]);
       setCheckoutAddress('');
+      setPromoCode('');
+      setActiveDiscountPct(0);
+      setAppliedPromo('');
       setOrderMessage('Checkout successful! Orders created and merchants notified.');
       setActiveSubTab('cart');
       triggerNotificationRefresh();
@@ -341,6 +510,10 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     setEditShopWeb(b.website || '');
     setEditShopCover(b.coverImage || '');
     setEditShopLogo(b.logo || '');
+    setEditShopThemeVibe(b.themeVibe || 'minimal');
+    setEditShopTagline(b.tagline || '');
+    setEditShopInstagram(b.instagramUrl || '');
+    setEditShopTwitter(b.twitterUrl || '');
     setShowShopSettings(true);
   };
 
@@ -357,7 +530,11 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
         email: editShopEmail,
         website: editShopWeb,
         coverImage: editShopCover,
-        logo: editShopLogo
+        logo: editShopLogo,
+        themeVibe: editShopThemeVibe,
+        tagline: editShopTagline,
+        instagramUrl: editShopInstagram,
+        twitterUrl: editShopTwitter
       });
       setShowShopSettings(false);
       fetchDashboard();
@@ -418,6 +595,8 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     'Service Provider',
     'Local Vendor'
   ];
+
+  const theme = selectedShop ? getThemeClasses((selectedShop as any).themeVibe) : getThemeClasses('minimal');
 
   return (
     <div className="space-y-6">
@@ -562,17 +741,17 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
 
       {/* --- SELECTED SHOP PROFILE VIEWER --- */}
       {activeSubTab === 'directory' && selectedShop && (
-        <div className="bg-gray-50/50 rounded-3xl overflow-hidden border border-gray-100 shadow-sm p-4 md:p-6 space-y-6">
+        <div className={`${theme.wrapper} shadow-lg border border-gray-150/40 relative space-y-6 transition-all duration-300`}>
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <button
               onClick={() => setSelectedShop(null)}
-              className="text-xs font-semibold text-teal-600 hover:text-teal-800 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-150 rounded-xl transition-all shadow-sm"
+              className="text-xs font-semibold text-teal-600 hover:text-teal-800 flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-150 rounded-xl transition-all shadow-sm cursor-pointer"
             >
               ← Return to Directory
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-gray-400 font-mono">Store Front Context Mode</span>
-              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <div className="flex items-center gap-2 bg-white/80 p-1.5 rounded-xl border border-gray-100 shadow-sm">
+              <span className="text-[10px] text-gray-500 font-mono font-bold uppercase tracking-wider pl-1">Store Front Context Mode: <strong className="text-teal-600">{(selectedShop as any).themeVibe || 'minimal'}</strong></span>
+              <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
             </div>
           </div>
 
@@ -603,7 +782,15 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       )}
                     </div>
                     <p className="text-xs text-teal-300 font-medium">#{selectedShop.category} • {selectedShop.distanceKm ? `${selectedShop.distanceKm} km away` : 'Nearby'}</p>
-                    <div className="flex items-center gap-2 text-white/90 text-xs">
+                    
+                    {/* Brand customizable slogan tagline */}
+                    {(selectedShop as any).tagline && (
+                      <p className="text-[11px] md:text-xs italic text-slate-200 mt-1 font-medium bg-black/45 px-3 py-1.5 rounded-xl border border-white/10 max-w-sm md:max-w-md">
+                        "{(selectedShop as any).tagline}"
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 text-white/90 text-xs pt-1">
                       <div className="flex items-center font-bold text-amber-400">
                         <Star size={13} className="fill-amber-400 mr-0.5" />
                         <span>{selectedShop.averageRating ? Number(selectedShop.averageRating).toFixed(1) : "5.0"}</span>
@@ -644,9 +831,9 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
               <button
                 key={tab.id}
                 onClick={() => setShopActiveTab(tab.id as any)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 transition-all ${
+                className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 transition-all cursor-pointer ${
                   shopActiveTab === tab.id
-                    ? 'bg-teal-600 text-white shadow-sm'
+                    ? theme.navTabActive
                     : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
                 }`}
               >
@@ -669,12 +856,12 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       placeholder="Search this business catalog..."
                       value={shopSearchFilter}
                       onChange={(e) => setShopSearchFilter(e.target.value)}
-                      className="flex-1 text-xs bg-gray-50 rounded-xl px-3.5 py-2 outline-none border border-transparent focus:border-teal-400"
+                      className={`flex-1 text-xs rounded-xl px-3.5 py-2 outline-none border transition-all ${theme.inputBg}`}
                     />
                     <select
                       value={shopCategoryFilter}
                       onChange={(e) => setShopCategoryFilter(e.target.value)}
-                      className="text-xs bg-gray-50 rounded-xl px-3 py-2 outline-none border border-transparent focus:border-teal-400 text-gray-600 font-bold"
+                      className={`text-xs rounded-xl px-3 py-2 outline-none border font-bold transition-all ${theme.inputBg}`}
                     >
                       <option value="">All Shop Aisle Categories</option>
                       {Array.from(new Set(shopProducts.map(p => p.category || 'General'))).map(cat => (
@@ -702,7 +889,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                           const isLowStock = p.stock > 0 && p.stock <= 5;
                           
                           return (
-                            <div key={p.id} className="bg-white rounded-2xl p-4 border border-gray-150 flex gap-4 hover:shadow-md transition-all relative overflow-hidden group">
+                            <div key={p.id} className={`${theme.card} flex gap-4 hover:shadow-md transition-all relative overflow-hidden group`}>
                               <img
                                 src={p.images[0] || "https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=200"}
                                 alt={p.name}
@@ -712,28 +899,28 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                               <div className="flex-1 min-w-0 flex flex-col justify-between">
                                 <div className="space-y-1">
                                   <div className="flex justify-between items-start gap-1">
-                                    <span className="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full uppercase tracking-wider">{p.category || 'General'}</span>
+                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${theme.pillBg} ${theme.accentText}`}>{p.category || 'General'}</span>
                                     {/* Inventory Indicator Badges */}
                                     {isOutOfStock ? (
                                       <span className="text-[8px] font-extrabold text-red-650 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md uppercase">Sold Out</span>
                                     ) : isLowStock ? (
                                       <span className="text-[8px] font-extrabold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md uppercase animate-pulse">Only {p.stock} left!</span>
                                     ) : (
-                                      <span className="text-[8px] font-extrabold text-teal-600 bg-teal-50/50 px-1.5 py-0.5 rounded-md uppercase">{p.stock} Available</span>
+                                      <span className="text-[8px] font-extrabold text-teal-650 bg-teal-50/50 px-1.5 py-0.5 rounded-md uppercase">{p.stock} Available</span>
                                     )}
                                   </div>
                                   <h4 className="font-extrabold text-xs text-gray-800 tracking-tight truncate mt-1">{p.name}</h4>
                                   <p className="text-[10px] text-gray-400 font-medium leading-relaxed line-clamp-2">{p.description}</p>
                                 </div>
                                 <div className="flex items-center justify-between mt-3 bg-gray-50 p-1.5 px-2.5 rounded-xl">
-                                  <span className="text-sm font-black text-gray-850 font-mono">${p.price}</span>
+                                  <span className={`text-sm font-black font-mono ${theme.priceText}`}>${p.price}</span>
                                   <button
                                     onClick={() => handleAddToCart(p)}
                                     disabled={isOutOfStock}
-                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all flex items-center gap-1 ${
+                                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all flex items-center gap-1 cursor-pointer ${
                                       isOutOfStock
                                         ? 'bg-gray-150 text-gray-450 cursor-not-allowed'
-                                        : 'bg-teal-600 hover:bg-teal-700 text-white shadow-sm'
+                                        : theme.primaryButton
                                     }`}
                                   >
                                     <ShoppingBag size={11} />
@@ -949,13 +1136,39 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                     <Building size={16} className="text-emerald-500 shrink-0" />
                     <span>Category: <strong>{selectedShop.category}</strong></span>
                   </div>
+
+                  {/* Dynamic Instagram and Twitter accounts */}
+                  {((selectedShop as any).instagramUrl || (selectedShop as any).twitterUrl) && (
+                    <div className="flex gap-2.5 pt-2 border-t border-gray-100/50">
+                      {(selectedShop as any).instagramUrl && (
+                        <a
+                          href={(selectedShop as any).instagramUrl.startsWith('http') ? (selectedShop as any).instagramUrl : `https://instagram.com/${(selectedShop as any).instagramUrl.replace('@', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-pink-600 font-bold bg-pink-50 hover:bg-pink-100 px-2.5 py-1.5 rounded-xl transition-all"
+                        >
+                          <span>Instagram</span>
+                        </a>
+                      )}
+                      {(selectedShop as any).twitterUrl && (
+                        <a
+                          href={(selectedShop as any).twitterUrl.startsWith('http') ? (selectedShop as any).twitterUrl : `https://twitter.com/${(selectedShop as any).twitterUrl.replace('@', '')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs text-sky-600 font-bold bg-sky-50 hover:bg-sky-100 px-2.5 py-1.5 rounded-xl transition-all"
+                        >
+                          <span>Twitter</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Interactive In-Store Shopping Cart Sidebar Bag */}
-              <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4 relative">
+              <div className={`${theme.card} relative space-y-4 shadow-md`}>
                 <div className="flex justify-between items-center">
-                  <h4 className="font-extrabold text-xs text-gray-800 uppercase tracking-widest text-teal-600">Local Store Cart</h4>
+                  <h4 className={`font-extrabold text-xs uppercase tracking-widest ${theme.subTitleColor}`}>Local Store Cart</h4>
                   <span className="bg-teal-50 text-teal-600 text-[10px] font-extrabold px-2 py-0.5 rounded-full font-mono">{cart.length} items</span>
                 </div>
 
@@ -971,7 +1184,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                             <p className="text-[9px] text-gray-400 font-mono">Qty: {item.quantity} • ${item.product?.price} ea</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-xs text-teal-600 font-mono">${(item.product?.price || 0) * item.quantity}</span>
+                            <span className={`font-black text-xs font-mono truncate ${theme.priceText}`}>${(item.product?.price || 0) * item.quantity}</span>
                             <button
                               onClick={() => {
                                 setCart(cart.filter(i => i.productId !== item.productId));
@@ -985,23 +1198,64 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       ))}
                     </div>
 
-                    <div className="border-t border-gray-100 pt-3 space-y-2">
-                      <div className="flex justify-between text-xs font-extrabold">
-                        <span className="text-gray-500">Cart Net Total:</span>
-                        <span className="text-teal-600 font-mono text-sm">${cart.reduce((s, i) => s + (i.product?.price || 0) * i.quantity, 0)}</span>
+                    <div className="border-t border-gray-100 pt-3 space-y-2.5">
+                      {/* Active Promo Input Field */}
+                      <div className="pb-2 border-b border-gray-100/50 space-y-1.5 text-left">
+                        <label className="text-[9.5px] text-gray-400 font-bold uppercase block">Enter Coupon Voucher:</label>
+                        <div className="flex gap-1.5">
+                          <input
+                            type="text"
+                            placeholder="e.g. WELCOME10"
+                            value={promoCode}
+                            onChange={(e) => setPromoCode(e.target.value)}
+                            className="flex-1 text-[11px] rounded-lg bg-gray-50 border border-gray-200 px-2.5 py-1.5 font-mono uppercase focus:bg-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleApplyPromo}
+                            className="bg-gray-800 text-white rounded-lg px-3 py-1.5 text-[10px] font-black cursor-pointer hover:bg-slate-700 transition-colors shrink-0"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        {promoError && (
+                          <span className="text-[9px] text-rose-500 font-bold block">{promoError}</span>
+                        )}
+                        {appliedPromo && (
+                          <span className="text-[9px] text-emerald-600 font-extrabold flex items-center gap-1 pb-1">
+                            ✔ Code "<strong>{appliedPromo}</strong>" Applied!
+                          </span>
+                        )}
+                      </div>
+
+                      {appliedPromo && (
+                        <div className="flex justify-between text-[10px] text-emerald-600 font-extrabold bg-emerald-50 px-2 py-1 rounded-lg">
+                          <span>Applied Promo Discount (-{activeDiscountPct}%):</span>
+                          <span>-${(cart.reduce((s, i) => s + (i.product?.price || 0) * i.quantity, 0) * activeDiscountPct / 100).toFixed(1)}</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between text-xs font-extrabold pb-1">
+                        <span className="text-gray-500">Billed Total:</span>
+                        <span className={`font-mono text-sm ${theme.priceText}`}>
+                          ${(
+                            cart.reduce((s, i) => s + (i.product?.price || 0) * i.quantity, 0) * 
+                            (1 - activeDiscountPct / 100)
+                          ).toFixed(1)}
+                        </span>
                       </div>
 
                       <div className="space-y-2">
                         <input
                           type="text"
-                          placeholder="Your precise delivery / pickup address Details..."
+                          placeholder="Your precise delivery / pickup address..."
                           value={checkoutAddress}
                           onChange={(e) => setCheckoutAddress(e.target.value)}
                           className="w-full text-xs rounded-xl bg-gray-50 border border-transparent p-2 outline-none focus:bg-white focus:border-teal-400"
                         />
                         <button
                           onClick={handleCheckout}
-                          className="w-full py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-extrabold shadow-md transform active:scale-95 transition-all text-center flex items-center justify-center gap-1.5"
+                          className="w-full py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-extrabold shadow-md transform active:scale-95 transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
                         >
                           <CreditCard size={13} />
                           Confirm & Book Order Now
@@ -1410,6 +1664,69 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                           rows={2}
                           className="w-full text-xs rounded-xl border border-gray-200 p-2.5 outline-none bg-gray-50 focus:bg-white font-medium"
                         ></textarea>
+                      </div>
+
+                      {/* Brand Identity / Storefront customization */}
+                      <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-3 text-left">
+                        <span className="text-[10px] text-teal-600 font-extrabold uppercase tracking-wider block">🎨 Dynamic Virtual Storefront Theme Vibe:</span>
+                        
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { value: 'minimal', label: 'Tech Minimalist', desc: 'Teal & Slate defaults', colors: 'bg-teal-500' },
+                            { value: 'vintage', label: 'Vintage Warmth', desc: 'Wood, Amber & Serif', colors: 'bg-amber-600' },
+                            { value: 'neon', label: 'Midnight Neon', desc: 'Purple & Monospace', colors: 'bg-fuchsia-500' },
+                            { value: 'organic', label: 'Organic Eco', desc: 'Sage Green & botanical', colors: 'bg-emerald-800' }
+                          ].map((v) => (
+                            <button
+                              key={v.value}
+                              type="button"
+                              onClick={() => setEditShopThemeVibe(v.value)}
+                              className={`p-2 rounded-xl text-left border flex flex-col items-center justify-center text-center transition-all ${
+                                editShopThemeVibe === v.value
+                                  ? 'border-teal-550 bg-white shadow-sm ring-1 ring-teal-500'
+                                  : 'border-slate-200 hover:border-slate-300 bg-white/60'
+                              }`}
+                            >
+                              <div className={`w-3.5 h-3.5 rounded-full ${v.colors} mb-1`} />
+                              <span className="text-[9px] font-black block text-slate-800 truncate leading-none mb-0.5">{v.label}</span>
+                              <span className="text-[7.5px] text-slate-400 font-medium scale-90 tracking-tighter leading-none">{v.desc}</span>
+                            </button>
+                          ))}
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Brand Tagline / Slogan (Displayed on Hero Banner)</label>
+                          <input
+                            type="text"
+                            value={editShopTagline}
+                            onChange={(e) => setEditShopTagline(e.target.value)}
+                            placeholder="e.g. Crafted in small batches, poured with love."
+                            className="w-full text-xs rounded-xl border border-gray-200 p-2 outline-none bg-white font-medium"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Instagram Account Link/Handle</label>
+                            <input
+                              type="text"
+                              value={editShopInstagram}
+                              onChange={(e) => setEditShopInstagram(e.target.value)}
+                              placeholder="@username or link"
+                              className="w-full text-xs rounded-xl border border-gray-200 p-2 outline-none bg-white font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-gray-500 font-bold uppercase block mb-1">Twitter Handle</label>
+                            <input
+                              type="text"
+                              value={editShopTwitter}
+                              onChange={(e) => setEditShopTwitter(e.target.value)}
+                              placeholder="@username"
+                              className="w-full text-xs rounded-xl border border-gray-200 p-2 outline-none bg-white font-mono"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">

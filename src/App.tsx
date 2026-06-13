@@ -238,6 +238,399 @@ export default function App() {
     ...(currentUser?.role === 'admin' ? [{ id: 'admin', label: 'Moderator Board', icon: <Shield size={17} /> }] : [])
   ];
 
+  const triggerDemoLogin = async (username: string) => {
+    try {
+      setLoading(true);
+      const data = await api.login(username, 'password');
+      setCurrentUser(data.user);
+      
+      // Seed original editing fields
+      if (data.user) {
+        setEditBio(data.user.bio || '');
+        setEditInterests((data.user.interests || []).join(', '));
+        setEditProfession(data.user.profession || '');
+        setEditWebsite(data.user.website || '');
+        setEditPhoto(data.user.profilePhoto || '');
+      }
+      
+      fetchNotifications();
+    } catch (err: any) {
+      alert(err.message || 'Login failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center font-sans antialiased text-white">
+        <div className="relative flex items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-4 border-teal-500 border-t-transparent"></div>
+          <div className="absolute text-xs text-teal-400 font-bold font-mono">G</div>
+        </div>
+        <p className="text-xs font-bold uppercase tracking-widest text-teal-400 font-mono mt-4 animate-pulse">Initializing Spatial Nodes...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    // Show Full-Screen Login & Registration Gateway Page
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col md:flex-row font-sans text-gray-200 overflow-hidden relative selection:bg-teal-500 selection:text-white">
+        
+        {/* Soft background decor blur bubbles */}
+        <div className="absolute top-[-10%] right-[-10%] w-[500px] h-[500px] bg-teal-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+
+        {/* LEFT COLUMN: HERO SPECS PANEL (Hidden on Mobile) */}
+        <div className="hidden md:flex md:w-1/2 lg:w-3/5 bg-slate-950/70 p-12 lg:p-16 flex-col justify-between h-screen border-r border-slate-800/80 relative z-10 backdrop-blur-3xl overflow-y-auto">
+          
+          {/* Logo & Brand Header */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center font-extrabold text-lg tracking-tight shadow-lg shadow-teal-600/20 animate-pulse">
+              G
+            </div>
+            <div>
+              <h2 className="text-base font-black tracking-tight text-white leading-none">GeoConnect</h2>
+              <span className="text-[10px] text-teal-400 font-bold uppercase tracking-widest mt-1 block">Spatial Peer Networking</span>
+            </div>
+          </div>
+
+          {/* Core Feature Text Blocks */}
+          <div className="my-auto max-w-xl py-8">
+            <span className="text-teal-400 text-xs uppercase font-extrabold tracking-widest bg-teal-950/80 px-3 py-1 rounded-full border border-teal-800/50 inline-block mb-4">
+              Version 1.4-Global Node
+            </span>
+            <h1 className="text-4xl lg:text-5xl font-black text-white tracking-tight leading-tight mb-6">
+              Connect with <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-cyan-400 to-indigo-400">Neighbors & Partners</span> Nearby.
+            </h1>
+            <p className="text-sm text-slate-400 leading-relaxed font-medium mb-10">
+              GeoConnect indexes real-world coordinates and translates physical distance into digital proximity. Explore social threads, nearby local stores, secure peer-to-peer discussions, and neighborhood-scoped gatherings instantly.
+            </p>
+
+            {/* Quick feature grid */}
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800/60 flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 shrink-0">
+                  <Compass size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Spatial Proximity</h4>
+                  <p className="text-[11px] text-slate-500 font-medium leading-normal">Interactive GPS map of surrounding peer residents and active stores.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800/60 flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 shrink-0">
+                  <MessageSquare size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Direct Messaging</h4>
+                  <p className="text-[11px] text-slate-500 font-medium leading-normal">Real-time localized chat channels and private groups with neighboring nodes.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800/60 flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 shrink-0">
+                  <Store size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Storefronts</h4>
+                  <p className="text-[11px] text-slate-500 font-medium leading-normal">Publish your shop catalog, list inventory items, and coordinate nearby customer orders.</p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800/60 flex items-start gap-3">
+                <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 shrink-0">
+                  <Shield size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-1">Verified Nodes</h4>
+                  <p className="text-[11px] text-slate-500 font-medium leading-normal">Built-in moderator audits, user report resolutions, and business verification rules.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Spatial Status Indicators footer */}
+          <div className="pt-6 border-t border-slate-900 flex items-center justify-between text-[11px] font-mono text-slate-500">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+              <span>Spatial Node: Standard Secure Gateway</span>
+            </div>
+            <span>© 2026 GeoConnect System</span>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: REVERSIBLE FORM BODY */}
+        <div className="flex-1 p-6 sm:p-12 lg:p-16 flex flex-col justify-center items-center h-screen overflow-y-auto relative z-10 bg-slate-900/45 backdrop-blur-md">
+          
+          {/* Logo on small devices */}
+          <div className="flex items-center gap-2 mb-8 md:hidden">
+            <div className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-black">G</div>
+            <h1 className="text-base font-black text-white font-display">GeoConnect</h1>
+          </div>
+
+          {/* Main Glass Form Card */}
+          <div className="bg-slate-950/60 border border-slate-800/80 p-8 sm:p-10 rounded-3xl w-full max-w-sm shadow-2xl space-y-6">
+            
+            {/* Headers titles switch mode tabs */}
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <h3 className="text-lg font-black text-white uppercase tracking-widest font-display text-teal-400">
+                  {authMode === 'login' ? 'Gateway Authorization' : 'Deploy Digital Node'}
+                </h3>
+              </div>
+              <p className="text-slate-400 text-xs font-medium">
+                {authMode === 'login' 
+                  ? 'Sign in to access local proximity alerts, map filters, and chat.' 
+                  : 'Create an independent map profile and register your coordinates.'}
+              </p>
+            </div>
+
+            {/* Slider Switch Tab Buttons */}
+            <div className="bg-slate-900 p-1 rounded-2xl flex border border-slate-800/50">
+              <button
+                type="button"
+                onClick={() => setAuthMode('login')}
+                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-widest transition-all rounded-xl ${
+                  authMode === 'login' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-550 hover:text-slate-350'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthMode('register')}
+                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-widest transition-all rounded-xl ${
+                  authMode === 'register' ? 'bg-teal-600 text-white shadow-md' : 'text-slate-550 hover:text-slate-355'
+                }`}
+              >
+                Create Node
+              </button>
+            </div>
+
+            {/* QUICK DEMO SEED USERS - EXTREMELY HELPFUL & POLISHED */}
+            {authMode === 'login' && (
+              <div className="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 space-y-2">
+                <span className="text-[10px] text-teal-400 font-extrabold uppercase tracking-wider block">⚡ Quick Demo Single-Click Entry:</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsernameInput('sarah_j');
+                      setPasswordInput('password');
+                      // Auto trigger submit
+                      triggerDemoLogin('sarah_j');
+                    }}
+                    className="p-1.5 bg-slate-950/80 border border-slate-800 hover:border-teal-500 rounded-xl text-[11px] text-slate-300 hover:text-white transition-all text-left flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-slate-800 overflow-hidden shrink-0 border border-slate-750">
+                      <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50" alt="Sarah" className="w-full h-full object-cover"/>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold truncate leading-none">Sarah J.</p>
+                      <p className="text-[8px] text-slate-500 mt-0.5 font-mono">sarah_j</p>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsernameInput('admin');
+                      setPasswordInput('admin');
+                      // Auto trigger submit
+                      triggerDemoLogin('admin');
+                    }}
+                    className="p-1.5 bg-slate-950/80 border border-slate-800 hover:border-teal-500 rounded-xl text-[11px] text-slate-300 hover:text-white transition-all text-left flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-teal-500/10 text-teal-400 shrink-0 flex items-center justify-center font-black text-[9px] border border-teal-800/50">
+                      SA
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold truncate leading-none">Admin Node</p>
+                      <p className="text-[8px] text-slate-400 mt-0.5 font-mono">admin</p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* AUTH ACTIONS FORM */}
+            {authMode === 'login' ? (
+              <form onSubmit={handleLogin} className="space-y-4 text-xs text-slate-200">
+                <div>
+                  <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1.5">Username</label>
+                  <input
+                    type="text"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    placeholder="e.g. sarah_j"
+                    className="w-full text-xs rounded-xl border border-slate-800/80 bg-slate-900/60 p-3 outline-none text-white focus:ring-1 focus:ring-teal-500 focus:border-teal-500 transition-all font-semibold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1.5">Password</label>
+                  <input
+                    type="password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full text-xs rounded-xl border border-slate-800/80 bg-slate-900/60 p-3 outline-none text-white focus:ring-1 focus:ring-teal-500 focus:border-teal-500 transition-all font-semibold"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-teal-600 hover:bg-teal-500 active:translate-y-[0.5px] text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-900/30 font-display cursor-pointer"
+                >
+                  Authorize Profile Gateway
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister} className="space-y-3.5 text-xs text-slate-300 max-h-[440px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      placeholder="e.g. Jordan River"
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Username</label>
+                    <input
+                      type="text"
+                      value={regUsername}
+                      onChange={(e) => setRegUsername(e.target.value)}
+                      placeholder="e.g. jordan_r"
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Email Account</label>
+                    <input
+                      type="email"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      placeholder="jordan@domain.com"
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Password</label>
+                    <input
+                      type="password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Mobile Number</label>
+                    <input
+                      type="text"
+                      value={regPhone}
+                      onChange={(e) => setRegPhone(e.target.value)}
+                      placeholder="+155512398"
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={regDob}
+                      onChange={(e) => setRegDob(e.target.value)}
+                      className="w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-slate-350 focus:ring-1 focus:ring-teal-500 font-semibold"
+                    />
+                  </div>
+                </div>
+
+                {/* Avatar Portrait with Interactive Seeds! */}
+                <div>
+                  <label className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider block mb-2">Avatar Visual Identity</label>
+                  <div className="grid grid-cols-4 gap-2 mb-2">
+                    {[
+                      { label: 'Creative', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150' },
+                      { label: 'Engineer', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150' },
+                      { label: 'Artist', url: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150' },
+                      { label: 'Founder', url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150' }
+                    ].map((av, avIdx) => {
+                      const isSelected = regPhoto === av.url;
+                      return (
+                        <button
+                          key={avIdx}
+                          type="button"
+                          onClick={() => setRegPhoto(av.url)}
+                          className={`p-1.5 rounded-xl border text-center transition-all flex flex-col items-center gap-1 cursor-pointer bg-slate-900/40 relative ${
+                            isSelected ? 'border-teal-400 bg-teal-950/20 shadow' : 'border-slate-850 hover:border-slate-705'
+                          }`}
+                        >
+                          <img src={av.url} alt={av.label} className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-700" />
+                          <span className="text-[8.5px] font-bold text-slate-400 leading-none truncate w-full">{av.label}</span>
+                          {isSelected && <span className="absolute top-0 right-0 w-2 h-2 rounded-full bg-teal-400 border border-slate-900"></span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <input
+                    type="text"
+                    value={regPhoto}
+                    onChange={(e) => setRegPhoto(e.target.value)}
+                    placeholder="Or paste custom Portrait URL..."
+                    className="w-full text-[11px] rounded-xl border border-slate-800 bg-slate-900/60 p-2 outline-none text-slate-300 focus:ring-1 focus:ring-teal-500 font-mono"
+                  />
+                </div>
+
+                {/* Simulated Geolocation Anchor Info */}
+                <div className="bg-teal-950/40 p-3 rounded-2xl border border-teal-900/50 text-[11px] text-teal-300 leading-relaxed font-semibold">
+                  <div className="flex items-center gap-1.5 font-bold text-teal-400 text-xs mb-1">
+                    <MapPin size={12} />
+                    <span>Spatial GPS Position Defined</span>
+                  </div>
+                  Pinned to simulated GPS: <strong className="text-white font-bold">{customCity}, {customState}</strong> ({customLat}, {customLng}) set during teleportation control.
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-900/30 cursor-pointer mt-2"
+                >
+                  Create & Deploy Live Node
+                </button>
+              </form>
+            )}
+
+          </div>
+
+          {/* Toggle Info message */}
+          <div className="mt-6 text-[11px] font-mono text-slate-500 text-center max-w-sm">
+            Deploying a node establishes a geographical anchor point in our system index, enabling real-time distance calculations for surrounding records.
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans antialiased text-gray-800">
       

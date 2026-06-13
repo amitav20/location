@@ -5,7 +5,7 @@
 
 // API Clients for interacting with the Express full-stack server
 const getSessionUserId = (): string => {
-  return localStorage.getItem('geoconnect_userid') || 'user_mock_1';
+  return localStorage.getItem('geoconnect_userid') || '';
 };
 
 const getHeaders = (): HeadersInit => {

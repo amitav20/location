@@ -75,8 +75,8 @@ export function InteractiveMap({
               id: u.id,
               name: u.name,
               type: 'user',
-              latitude: u.location.latitude,
-              longitude: u.location.longitude,
+              latitude: u.location?.latitude || 37.7749,
+              longitude: u.location?.longitude || -122.4194,
               distanceKm: u.distanceKm,
               details: u.profession || 'Neighboring Resident'
             });
@@ -94,8 +94,8 @@ export function InteractiveMap({
             id: b.id,
             name: b.name,
             type: 'business',
-            latitude: b.location.latitude,
-            longitude: b.location.longitude,
+            latitude: b.latitude || 37.7749,
+            longitude: b.longitude || -122.4194,
             distanceKm: b.distanceKm,
             category: b.category,
             details: b.description
@@ -113,8 +113,8 @@ export function InteractiveMap({
             id: e.id,
             name: e.name,
             type: 'event',
-            latitude: e.location.latitude,
-            longitude: e.location.longitude,
+            latitude: e.latitude || 37.7749,
+            longitude: e.longitude || -122.4194,
             distanceKm: e.distanceKm,
             details: `${e.date} at ${e.time}`
           });

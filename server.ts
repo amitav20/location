@@ -70,11 +70,10 @@ initDB();
 // even when first loading or without full authentication flows.
 function getAuthenticatedUserId(req: express.Request): string {
   const userIdHeader = req.headers['x-session-userid'];
-  if (userIdHeader && typeof userIdHeader === 'string') {
+  if (userIdHeader && typeof userIdHeader === 'string' && userIdHeader !== '') {
     return userIdHeader;
   }
-  // Default fallback user for immediate client accessibility (Sarah Jenkins)
-  return 'user_mock_1';
+  return '';
 }
 
 // REST APIs
@@ -1207,7 +1206,7 @@ app.get('/api/businesses', (req, res) => {
 // Create business account
 app.post('/api/businesses', (req, res) => {
   const userId = getAuthenticatedUserId(req);
-  const { category, name, logo, coverImage, description, address, latitude, longitude, phone, email, website } = req.body;
+  const { category, name, logo, coverImage, description, address, latitude, longitude, phone, email, website, themeVibe, tagline, instagramUrl, twitterUrl } = req.body;
 
   if (!category || !name || !address || !phone || !email) {
     res.status(400).json({ error: 'Missing required business fields' });
@@ -1215,7 +1214,7 @@ app.post('/api/businesses', (req, res) => {
   }
 
   const user = findUserById(userId);
-  const newBiz: Business = {
+  const newBiz: any = {
     id: `biz_${Date.now()}`,
     ownerId: userId,
     category,
@@ -1230,6 +1229,10 @@ app.post('/api/businesses', (req, res) => {
     email,
     website,
     isVerified: false, // Must be verified by superadmin
+    themeVibe: themeVibe || 'minimal',
+    tagline: tagline || '',
+    instagramUrl: instagramUrl || '',
+    twitterUrl: twitterUrl || '',
     createdAt: new Date().toISOString()
   };
 
@@ -1370,7 +1373,7 @@ app.delete('/api/businesses/products/:id', (req, res) => {
 app.put('/api/businesses/:id', (req, res) => {
   const userId = getAuthenticatedUserId(req);
   const bizId = req.params.id;
-  const { name, category, description, address, phone, email, website, coverImage, logo } = req.body;
+  const { name, category, description, address, phone, email, website, coverImage, logo, themeVibe, tagline, instagramUrl, twitterUrl } = req.body;
 
   const biz = getBusinesses().find((b) => b.id === bizId && b.ownerId === userId);
   if (!biz) {
@@ -1387,6 +1390,10 @@ app.put('/api/businesses/:id', (req, res) => {
   if (website !== undefined) biz.website = website;
   if (coverImage !== undefined) biz.coverImage = coverImage;
   if (logo !== undefined) biz.logo = logo;
+  if (themeVibe !== undefined) (biz as any).themeVibe = themeVibe;
+  if (tagline !== undefined) (biz as any).tagline = tagline;
+  if (instagramUrl !== undefined) (biz as any).instagramUrl = instagramUrl;
+  if (twitterUrl !== undefined) (biz as any).twitterUrl = twitterUrl;
 
   saveDB();
   res.json({ success: true, business: biz });
