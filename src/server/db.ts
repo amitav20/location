@@ -24,9 +24,29 @@ import {
   Follow,
   UserBlock
 } from '../types';
+import { hashPassword } from './auth';
 
-const DB_DIR = path.join(process.cwd(), 'data');
+// DATA_DIR lets tests run against a throwaway copy
+const DB_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DB_DIR, 'geoconnect_db.json');
+const DEFAULT_PLACE = { city: 'San Francisco', state: 'California', country: 'United States' };
+export const UPLOADS_DIR = path.join(DB_DIR, 'uploads');
+
+// Password for the seeded demo accounts (sarah_j, admin, ...)
+export const DEMO_PASSWORD = 'password';
+
+// Server-only records: never sent to the browser
+export interface Session {
+  tokenHash: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface Credential {
+  userId: string;
+  passwordHash: string;
+}
 
 // Memory storage
 let users: User[] = [];
@@ -46,6 +66,8 @@ let reviews: Review[] = [];
 let orders: Order[] = [];
 let notifications: Notification[] = [];
 let reports: Report[] = [];
+let sessions: Session[] = [];
+let credentials: Credential[] = [];
 
 // Haversine Distance Formula in KM
 export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -90,15 +112,32 @@ export function initDB() {
       orders = data.orders || [];
       notifications = data.notifications || [];
       reports = data.reports || [];
+      sessions = (data.sessions || []).filter((s: Session) => new Date(s.expiresAt).getTime() > Date.now());
+      credentials = data.credentials || [];
       console.log('Database loaded successfully from file.');
     } catch (err) {
       console.error('Error reading database file. Initializing empty memories.', err);
-      seedMockData(37.7749, -122.4194); // Default to SF coordinates
+      seedMockData(37.7749, -122.4194, DEFAULT_PLACE); // Default to SF coordinates
     }
   } else {
     // Standard setup with SF coords initially if file doesn't exist
-    seedMockData(37.7749, -122.4194);
+    seedMockData(37.7749, -122.4194, DEFAULT_PLACE);
   }
+
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  ensureCredentials();
+}
+
+// Accounts created before passwords were stored get the demo password so they can still sign in
+function ensureCredentials() {
+  const missing = users.filter((u) => !credentials.some((c) => c.userId === u.id));
+  if (missing.length === 0) return;
+  missing.forEach((u) => setPassword(u.id, DEMO_PASSWORD, false));
+  saveDB();
+  console.warn(
+    `${missing.length} account(s) had no password and were given the demo password "${DEMO_PASSWORD}": ` +
+      missing.map((u) => u.username).join(', ')
+  );
 }
 
 export function saveDB() {
@@ -120,7 +159,9 @@ export function saveDB() {
       reviews,
       orders,
       notifications,
-      reports
+      reports,
+      sessions,
+      credentials
     };
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
   } catch (err) {
@@ -128,10 +169,92 @@ export function saveDB() {
   }
 }
 
-// Seeder logic to populates realistic surrounding information based on coordinates
-export function seedMockData(lat: number, lng: number) {
-  console.log(`Seeding mock database centered near lat: ${lat}, lng: ${lng}`);
+// Real Unsplash portraits / landscapes for the demo neighbors (index-aligned with userOffsets)
+const MOCK_USER_PHOTOS = [
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=150&h=150&fit=crop',
+  'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=150&h=150&fit=crop'
+];
 
+const MOCK_COVER_PHOTOS = [
+  'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1469474968028-56623f02e42e?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1433086966358-54859d0ed716?w=600&h=200&fit=crop',
+  'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=600&h=200&fit=crop'
+];
+
+// Older databases stored generated Unsplash ids (no hash suffix) that 404; swap them for real photos.
+const BROKEN_UNSPLASH_URL = /images\.unsplash\.com\/photo-\d+\?/;
+
+function repairMockUserPhotos() {
+  users.forEach((u) => {
+    const match = u.id.match(/^user_mock_(\d+)/);
+    if (!match) return;
+    const idx = (Number(match[1]) - 1) % MOCK_USER_PHOTOS.length;
+    if (BROKEN_UNSPLASH_URL.test(u.profilePhoto)) u.profilePhoto = MOCK_USER_PHOTOS[idx];
+    if (u.coverImage && BROKEN_UNSPLASH_URL.test(u.coverImage)) u.coverImage = MOCK_COVER_PHOTOS[idx];
+  });
+}
+
+// Each demo "neighborhood" (users, shops, events, posts) covers this radius around where it was seeded.
+const SEED_RADIUS_KM = 30;
+const SEEDED_ANCHOR_BUSINESS = /^biz_1(_c\d+)?$/;
+
+function hasNeighborhoodNear(lat: number, lng: number) {
+  return businesses.some(
+    (b) => SEEDED_ANCHOR_BUSINESS.test(b.id) && haversineDistance(lat, lng, b.latitude, b.longitude) <= SEED_RADIUS_KM
+  );
+}
+
+function uniqueUsername(base: string) {
+  let candidate = base;
+  while (users.some((u) => u.username.toLowerCase() === candidate.toLowerCase())) {
+    candidate += '_';
+  }
+  return candidate;
+}
+
+export interface SeedPlace {
+  city?: string;
+  state?: string;
+  country?: string;
+}
+
+// Seeder logic to populates realistic surrounding information based on coordinates.
+// A fresh demo neighborhood is generated the first time anyone visits a new area.
+export function seedMockData(lat: number, lng: number, place: SeedPlace = {}) {
+  ensureAdminAccount(lat, lng);
+  repairMockUserPhotos();
+
+  if (hasNeighborhoodNear(lat, lng)) {
+    saveDB();
+    return;
+  }
+
+  // Cluster 0 keeps the original ids (biz_1, user_mock_1, ...) so existing databases stay compatible
+  const clusterIdx = businesses.filter((b) => SEEDED_ANCHOR_BUSINESS.test(b.id)).length;
+  const sfx = clusterIdx === 0 ? '' : `_c${clusterIdx + 1}`;
+  const mockId = (n: number) => `user_mock_${n}${sfx}`;
+  const city = place.city || 'Local City';
+  const state = place.state || '';
+  const country = place.country || '';
+
+  console.log(`Seeding demo neighborhood #${clusterIdx + 1} near lat: ${lat}, lng: ${lng}`);
+
+  seedNeighborhood(lat, lng, { sfx, clusterIdx, mockId, city, state, country });
+  saveDB();
+}
+
+function ensureAdminAccount(lat: number, lng: number) {
   // Create primary admin accounts if not exists
   const hasAdmin = users.some((u) => u.isAdmin);
   if (!hasAdmin) {
@@ -159,7 +282,21 @@ export function seedMockData(lat: number, lng: number) {
       isAdmin: true,
       createdAt: new Date().toISOString()
     });
+    setPassword('admin_1', DEMO_PASSWORD, false);
   }
+}
+
+interface NeighborhoodContext {
+  sfx: string;
+  clusterIdx: number;
+  mockId: (n: number) => string;
+  city: string;
+  state: string;
+  country: string;
+}
+
+function seedNeighborhood(lat: number, lng: number, ctx: NeighborhoodContext) {
+  const { sfx, clusterIdx, mockId, city, state, country } = ctx;
 
   // Create mock users nearby with various offsets (lat offset, lng offset)
   const userOffsets = [
@@ -176,62 +313,59 @@ export function seedMockData(lat: number, lng: number) {
   const newlySeededUsers: User[] = [];
 
   userOffsets.forEach((uo, idx) => {
-    const mockUserId = `user_mock_${idx + 1}`;
-    // Check if duplicate username already exists
-    if (users.some((u) => u.username === uo.username)) return;
+    const mockUserId = mockId(idx + 1);
+    if (users.some((u) => u.id === mockUserId)) return;
+    const username = uniqueUsername(clusterIdx === 0 ? uo.username : `${uo.username}${clusterIdx + 1}`);
 
     const mockUser: User = {
       id: mockUserId,
       name: uo.name,
-      username: uo.username,
-      email: `${uo.username}@example.com`,
+      username,
+      email: `${username}@example.com`,
       mobile: `+155598765${idx}`,
-      profilePhoto: `https://images.unsplash.com/photo-${1500000000000 + uo.photoIdx * 10000}?w=150&h=150&fit=crop`,
-      coverImage: `https://images.unsplash.com/photo-${1510000000000 + idx * 80000}?w=600&h=200&fit=crop`,
+      profilePhoto: MOCK_USER_PHOTOS[idx % MOCK_USER_PHOTOS.length],
+      coverImage: MOCK_COVER_PHOTOS[idx % MOCK_COVER_PHOTOS.length],
       dob: `199${4 + idx}-0${idx + 1}-15`,
       gender: uo.gender,
       bio: `Local enthusiast. Loving local cafes, ${uo.interest[0]}, and meeting cool neighbors!`,
       interests: uo.interest,
       profession: uo.profession,
-      website: `${uo.username}.dev`,
+      website: `${username}.dev`,
       socialLinks: {
-        instagram: `instagram.com/${uo.username}`,
-        twitter: `twitter.com/${uo.username}`
+        instagram: `instagram.com/${username}`,
+        twitter: `twitter.com/${username}`
       },
       location: {
         latitude: lat + uo.dLat,
         longitude: lng + uo.dLng,
-        city: 'Local City',
-        state: 'Local State',
-        country: 'Local Country',
+        city,
+        state,
+        country,
         updatedAt: new Date().toISOString()
       },
       createdAt: new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString() // 30 days ago
     };
     users.push(mockUser);
+    setPassword(mockUserId, DEMO_PASSWORD, false);
     newlySeededUsers.push(mockUser);
   });
 
   // Make some interactions (Requests, Friends)
-  if (users.length >= 4) {
-    // Seed friend request states
-    const fReqExist = friendRequests.some((fr) => fr.senderId === 'user_mock_1');
-    if (!fReqExist) {
-      friendRequests.push({
-        id: 'fr_1',
-        senderId: 'user_mock_1', // Sarah
-        receiverId: 'user_mock_2', // Alex
-        status: 'accepted',
-        createdAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString()
-      });
-      friendRequests.push({
-        id: 'fr_2',
-        senderId: 'user_mock_3', // Chloe
-        receiverId: 'user_mock_1',
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      });
-    }
+  if (!friendRequests.some((fr) => fr.id === `fr_1${sfx}`)) {
+    friendRequests.push({
+      id: `fr_1${sfx}`,
+      senderId: mockId(1), // Sarah
+      receiverId: mockId(2), // Alex
+      status: 'accepted',
+      createdAt: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString()
+    });
+    friendRequests.push({
+      id: `fr_2${sfx}`,
+      senderId: mockId(3), // Chloe
+      receiverId: mockId(1),
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    });
   }
 
   // Seed Mock Businesses
@@ -317,9 +451,10 @@ export function seedMockData(lat: number, lng: number) {
   ];
 
   businessTemplates.forEach((bt) => {
-    if (!businesses.some((b) => b.id === bt.id)) {
+    const bizId = `${bt.id}${sfx}`;
+    if (!businesses.some((b) => b.id === bizId)) {
       businesses.push({
-        id: bt.id,
+        id: bizId,
         ownerId: 'admin_1', // Owned by admin initially for demo dashboard
         category: bt.category,
         name: bt.name,
@@ -338,18 +473,18 @@ export function seedMockData(lat: number, lng: number) {
 
       // Add corresponding reviews to get initial ratings
       reviews.push({
-        id: `rev_${bt.id}_1`,
-        targetId: bt.id,
-        userId: 'user_mock_1',
+        id: `rev_${bizId}_1`,
+        targetId: bizId,
+        userId: mockId(1),
         rating: Math.floor(bt.rating),
         comment: `Excellent service! This is exactly what our neighborhood was missing. Recommend 100%!`,
         createdAt: new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString()
       });
 
       reviews.push({
-        id: `rev_${bt.id}_2`,
-        targetId: bt.id,
-        userId: 'user_mock_2',
+        id: `rev_${bizId}_2`,
+        targetId: bizId,
+        userId: mockId(2),
         rating: 5,
         comment: `Super friendly staff and very high quality! Will definitely visit again and again.`,
         createdAt: new Date(Date.now() - 10 * 24 * 3600 * 1000).toISOString()
@@ -374,10 +509,11 @@ export function seedMockData(lat: number, lng: number) {
   ];
 
   productTemplates.forEach((pt) => {
-    if (!products.some((p) => p.id === pt.id)) {
+    const prodId = `${pt.id}${sfx}`;
+    if (!products.some((p) => p.id === prodId)) {
       products.push({
-        id: pt.id,
-        businessId: pt.businessId,
+        id: prodId,
+        businessId: `${pt.businessId}${sfx}`,
         name: pt.name,
         description: pt.desc,
         price: pt.price,
@@ -424,10 +560,11 @@ export function seedMockData(lat: number, lng: number) {
   ];
 
   eventTemplates.forEach((et) => {
-    if (!events.some((e) => e.id === et.id)) {
+    const eventId = `${et.id}${sfx}`;
+    if (!events.some((e) => e.id === eventId)) {
       events.push({
-        id: et.id,
-        creatorId: 'user_mock_1', // created by Sarah
+        id: eventId,
+        creatorId: mockId(1), // created by Sarah
         name: et.name,
         description: et.description,
         locationName: et.locationName,
@@ -436,7 +573,7 @@ export function seedMockData(lat: number, lng: number) {
         date: et.date,
         time: et.time,
         image: et.image,
-        participants: ['user_mock_1', 'user_mock_2', 'user_mock_3'],
+        participants: [mockId(1), mockId(2), mockId(3)],
         createdAt: new Date().toISOString()
       });
     }
@@ -446,43 +583,41 @@ export function seedMockData(lat: number, lng: number) {
   const postTemplates = [
     {
       id: 'post_1',
-      userId: 'user_mock_1', // Sarah
+      userId: mockId(1), // Sarah
       type: 'image' as const,
       content: 'Just grabbed a marvelous pour-over and a buttery croissant at Aroma Corner. Starting the productive design week right! 🌸☕️',
       mediaUrls: ['https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&h=450&fit=crop'],
       dLat: 0.001, dLng: 0.002,
-      city: 'San Francisco', country: 'United States',
-      likes: ['user_mock_2', 'user_mock_3']
+      likes: [mockId(2), mockId(3)]
     },
     {
       id: 'post_2',
-      userId: 'user_mock_2', // Alex
+      userId: mockId(2), // Alex
       type: 'poll' as const,
       content: 'Hey neighbors! I want to organize a local cycling club this coming weekend. Which trail direction would you guys prefer to embark on?',
       pollOptions: [
-        { id: 'opt_1', text: 'Stinson Coastal Route (Scenic but steep)', votes: ['user_mock_1', 'user_mock_4'] },
-        { id: 'opt_2', text: 'Golden Gate Redwoods Preserve (Flat nature shadows)', votes: ['user_mock_3'] },
-        { id: 'opt_3', text: 'Silicon Valley Urban Loop (Fast paced asphalt)', votes: [] }
+        { id: 'opt_1', text: 'Coastal Route (Scenic but steep)', votes: [mockId(1), mockId(4)] },
+        { id: 'opt_2', text: 'Forest Preserve Loop (Flat and shady)', votes: [mockId(3)] },
+        { id: 'opt_3', text: 'Urban Loop (Fast paced asphalt)', votes: [] }
       ],
       dLat: -0.002, dLng: 0.003,
-      city: 'San Francisco', country: 'United States',
-      likes: ['user_mock_1']
+      likes: [mockId(1)]
     },
     {
       id: 'post_3',
-      userId: 'user_mock_3', // Chloe
+      userId: mockId(3), // Chloe
       type: 'text' as const,
       content: 'Is anyone else hearing beautiful live acoustic guitar playing around Broad St Park right now? Sounds absolutely magical under the sunset...',
       dLat: 0.006, dLng: -0.005,
-      city: 'San Francisco', country: 'United States',
-      likes: ['user_mock_1', 'user_mock_4', 'user_mock_2']
+      likes: [mockId(1), mockId(4), mockId(2)]
     }
   ];
 
   postTemplates.forEach((pt) => {
-    if (!posts.some((p) => p.id === pt.id)) {
+    const postId = `${pt.id}${sfx}`;
+    if (!posts.some((p) => p.id === postId)) {
       posts.push({
-        id: pt.id,
+        id: postId,
         userId: pt.userId,
         type: pt.type,
         content: pt.content,
@@ -490,8 +625,8 @@ export function seedMockData(lat: number, lng: number) {
         pollOptions: pt.pollOptions,
         latitude: lat + pt.dLat,
         longitude: lng + pt.dLng,
-        city: pt.city,
-        country: pt.country,
+        city,
+        country,
         likes: pt.likes,
         loves: [],
         createdAt: new Date(Date.now() - 12 * 3600 * 1000).toISOString() // 12 hours ago
@@ -500,9 +635,9 @@ export function seedMockData(lat: number, lng: number) {
       // Add a couple comments
       if (pt.id === 'post_1') {
         comments.push({
-          id: 'cmt_1_1',
-          postId: pt.id,
-          userId: 'user_mock_2',
+          id: `cmt_1_1${sfx}`,
+          postId,
+          userId: mockId(2),
           content: 'Aroma Brews is fantastic! Try their matcha cookies next time.',
           createdAt: new Date(Date.now() - 11 * 3600 * 1000).toISOString()
         });
@@ -511,22 +646,21 @@ export function seedMockData(lat: number, lng: number) {
   });
 
   // Seed stories that expire in 24 hours
-  const hasStories = stories.length > 0;
-  if (!hasStories) {
+  if (!stories.some((s) => s.id === `story_1${sfx}`)) {
     stories.push({
-      id: 'story_1',
-      userId: 'user_mock_1',
+      id: `story_1${sfx}`,
+      userId: mockId(1),
       mediaUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=300&h=500&fit=crop',
       mediaType: 'image',
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 23 * 3600 * 1000).toISOString(),
-      views: [{ userId: 'user_mock_2', viewedAt: new Date().toISOString() }],
-      reactions: [{ userId: 'user_mock_2', reaction: '🔥', createdAt: new Date().toISOString() }]
+      views: [{ userId: mockId(2), viewedAt: new Date().toISOString() }],
+      reactions: [{ userId: mockId(2), reaction: '🔥', createdAt: new Date().toISOString() }]
     });
 
     stories.push({
-      id: 'story_2',
-      userId: 'user_mock_3',
+      id: `story_2${sfx}`,
+      userId: mockId(3),
       mediaUrl: 'https://images.unsplash.com/photo-1498804103079-a6351b050096?w=300&h=500&fit=crop',
       mediaType: 'image',
       createdAt: new Date().toISOString(),
@@ -536,9 +670,8 @@ export function seedMockData(lat: number, lng: number) {
     });
   }
 
-  // Seed messages/chat groups
-  const hasChat = chatGroups.length > 0;
-  if (!hasChat) {
+  // Seed messages/chat groups (only once, for the first neighborhood)
+  if (clusterIdx === 0 && chatGroups.length === 0) {
     chatGroups.push({
       id: 'one-to-one:user_mock_1:admin_1',
       isGroup: false,
@@ -556,13 +689,16 @@ export function seedMockData(lat: number, lng: number) {
       createdAt: new Date(Date.now() - 1800 * 1000).toISOString()
     });
   }
-
-  saveDB();
 }
 
 // REST helper CRUD queries
+// Includes banned users: callers decide how to treat them (login shows a "banned" message)
 export function findUserByUsername(username: string): User | undefined {
-  return users.find((u) => u.username.toLowerCase() === username.toLowerCase() && !u.isBanned);
+  return users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+}
+
+export function findUserByEmail(email: string): User | undefined {
+  return users.find((u) => u.email.toLowerCase() === email.toLowerCase());
 }
 
 export function findUserById(id: string): User | undefined {
@@ -582,7 +718,11 @@ export function addUser(user: User) {
 export function updateUser(id: string, updates: Partial<User>) {
   const idx = users.findIndex((u) => u.id === id);
   if (idx !== -1) {
-    users[idx] = { ...users[idx], ...updates, location: { ...users[idx].location, ...updates.location } } as User;
+    // Ignore fields the client didn't send, so a partial update can't wipe e.g. the user's name
+    const defined = Object.fromEntries(
+      Object.entries(updates).filter(([, value]) => value !== undefined)
+    ) as Partial<User>;
+    users[idx] = { ...users[idx], ...defined, location: { ...users[idx].location, ...defined.location } } as User;
     saveDB();
     return users[idx];
   }
@@ -650,4 +790,74 @@ export function getFollows() {
 
 export function getBlocks() {
   return blocks;
+}
+
+export function getSessions() {
+  return sessions;
+}
+
+export function getCredential(userId: string): Credential | undefined {
+  return credentials.find((c) => c.userId === userId);
+}
+
+export function setPassword(userId: string, password: string, persist = true) {
+  const passwordHash = hashPassword(password);
+  const existing = credentials.find((c) => c.userId === userId);
+  if (existing) existing.passwordHash = passwordHash;
+  else credentials.push({ userId, passwordHash });
+  if (persist) saveDB();
+}
+
+// In-place removal so every module holding the array sees the change; returns how many were removed
+export function removeWhere<T>(list: T[], predicate: (item: T) => boolean): number {
+  let removed = 0;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (predicate(list[i])) {
+      list.splice(i, 1);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+// Deletes a post together with its comments
+export function deletePostCascade(postId: string) {
+  removeWhere(posts, (p) => p.id === postId);
+  removeWhere(comments, (c) => c.postId === postId);
+}
+
+// Deletes a business together with its catalog and offers (orders are kept as purchase history)
+export function deleteBusinessCascade(businessId: string) {
+  removeWhere(businesses, (b) => b.id === businessId);
+  removeWhere(products, (p) => p.businessId === businessId);
+  removeWhere(offers, (o) => o.businessId === businessId);
+  removeWhere(reviews, (r) => r.targetId === businessId);
+  removeWhere(follows, (f) => f.followingId === businessId);
+}
+
+// "Delete my account": removes the user and everything they own. Orders stay as the shops' history,
+// and messages in shared conversations stay (they show as "Deleted user").
+export function deleteUserCascade(userId: string) {
+  posts.filter((p) => p.userId === userId).forEach((p) => deletePostCascade(p.id));
+  businesses.filter((b) => b.ownerId === userId).forEach((b) => deleteBusinessCascade(b.id));
+
+  removeWhere(users, (u) => u.id === userId);
+  removeWhere(credentials, (c) => c.userId === userId);
+  removeWhere(sessions, (s) => s.userId === userId);
+  removeWhere(comments, (c) => c.userId === userId);
+  removeWhere(stories, (s) => s.userId === userId);
+  removeWhere(friendRequests, (r) => r.senderId === userId || r.receiverId === userId);
+  removeWhere(follows, (f) => f.followerId === userId || f.followingId === userId);
+  removeWhere(blocks, (b) => b.blockerId === userId || b.blockedId === userId);
+  removeWhere(notifications, (n) => n.userId === userId || n.senderId === userId);
+  removeWhere(reviews, (r) => r.userId === userId);
+  removeWhere(events, (e) => e.creatorId === userId);
+  events.forEach((e) => removeWhere(e.participants, (id) => id === userId));
+
+  chatGroups.forEach((g) => removeWhere(g.memberIds, (id) => id === userId));
+  const emptyGroups = new Set(chatGroups.filter((g) => g.memberIds.length === 0).map((g) => g.id));
+  removeWhere(chatGroups, (g) => emptyGroups.has(g.id));
+  removeWhere(messages, (m) => emptyGroups.has(m.groupId));
+
+  saveDB();
 }

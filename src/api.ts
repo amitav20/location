@@ -3,423 +3,430 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// API Clients for interacting with the Express full-stack server
-const getSessionUserId = (): string => {
-  return localStorage.getItem('geoconnect_userid') || '';
-};
+import { FriendsOverview, SocialRelations, User } from './types';
 
-const getHeaders = (): HeadersInit => {
-  return {
-    'Content-Type': 'application/json',
-    'x-session-userid': getSessionUserId()
-  };
-};
+// API client for the Express server. Signed-in requests carry "Authorization: Bearer <session token>".
+const TOKEN_KEY = 'geoconnect_session';
+
+function readToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem('geoconnect_userid'); // left over from the old header-based "login"
+  } catch {
+    // Storage unavailable: the session just won't survive a reload
+  }
+}
+
+// App registers this so an expired/revoked session drops the user back to the sign-in screen
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
+
+async function request<T = any>(url: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+  const token = readToken();
+  const res = await fetch(url, {
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    // Empty or non-JSON body
+  }
+
+  if (res.status === 401 && token) {
+    writeToken(null);
+    onUnauthorized?.();
+  }
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Request failed (${res.status})`);
+  }
+  return data as T;
+}
+
+export interface Place {
+  name: string;
+  displayName: string;
+  latitude: number;
+  longitude: number;
+  city: string;
+  state: string;
+  country: string;
+}
+
+export interface UploadResult {
+  url: string;
+  kind: 'image' | 'video' | 'audio';
+  mime: string;
+}
+
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+function readAsDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Could not read the file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+const enc = encodeURIComponent;
 
 export const api = {
-  // Auth API
+  hasSession: () => !!readToken(),
+
+  // ---------- Auth ----------
   async register(data: any) {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Registration failed');
-    return res.json();
+    const result = await request<{ user: User; token: string }>('/api/auth/register', { method: 'POST', body: data });
+    writeToken(result.token);
+    return result;
   },
 
-  async login(username: string, password?: string) {
-    const res = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password })
-    });
-    if (!res.ok) throw new Error((await res.json()).error || 'Login failed');
-    const data = await res.json();
-    localStorage.setItem('geoconnect_userid', data.user.id);
-    return data;
+  async login(username: string, password: string) {
+    const result = await request<{ user: User; token: string }>('/api/auth/login', { method: 'POST', body: { username, password } });
+    writeToken(result.token);
+    return result;
   },
 
-  logout() {
-    localStorage.removeItem('geoconnect_userid');
-    return Promise.resolve();
-  },
-
-  async updateLocation(latitude: number, longitude: number, city?: string, state?: string, country?: string) {
-    const res = await fetch('/api/auth/location', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ latitude, longitude, city, state, country })
-    });
-    return res.json();
-  },
-
-  // Users profiles
-  async getMe() {
-    const res = await fetch('/api/users/me', { headers: getHeaders() });
-    if (!res.ok) throw new Error('Not authenticated');
-    return res.json();
-  },
-
-  async updateProfile(profileData: any) {
-    const res = await fetch('/api/users/profile', {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(profileData)
-    });
-    return res.json();
-  },
-
-  // Friend / follow states
-  async getSocialRelations() {
-    const res = await fetch('/api/users/social-relations', { headers: getHeaders() });
-    return res.json();
-  },
-
-  async sendFriendRequest(receiverId: string) {
-    const res = await fetch('/api/users/friend-request', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ receiverId })
-    });
-    return res.json();
-  },
-
-  async respondFriendRequest(requestId: string, respond: 'accepted' | 'declined') {
-    const res = await fetch('/api/users/friend-respond', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ requestId, respond })
-    });
-    return res.json();
-  },
-
-  async toggleFollow(targetId: string, targetType: 'user' | 'business') {
-    const res = await fetch('/api/users/follow', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ targetId, targetType })
-    });
-    return res.json();
-  },
-
-  async blockUser(blockedId: string) {
-    const res = await fetch('/api/users/block', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ blockedId })
-    });
-    return res.json();
-  },
-
-  // Submit Content Report
-  async submitReport(targetId: string, targetType: string, reason: string) {
-    const res = await fetch('/api/reports', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ targetId, targetType, reason })
-    });
-    return res.json();
-  },
-
-  // Social Posts
-  async createPost(postData: { type: string; content: string; mediaUrls?: string[]; pollOptions?: string[]; sharedPostId?: string }) {
-    const res = await fetch('/api/posts', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(postData)
-    });
-    return res.json();
-  },
-
-  async getFeed(range: string = '25') {
-    const res = await fetch(`/api/posts/feed?range=${range}`, { headers: getHeaders() });
-    return res.json();
-  },
-
-  async togglePostReact(id: string, reaction: 'like' | 'love') {
-    const res = await fetch(`/api/posts/${id}/react`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ reaction })
-    });
-    return res.json();
-  },
-
-  async votePoll(postId: string, optionId: string) {
-    const res = await fetch(`/api/posts/${postId}/vote`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ optionId })
-    });
-    return res.json();
-  },
-
-  async getComments(postId: string) {
-    const res = await fetch(`/api/posts/${postId}/comments`, { headers: getHeaders() });
-    return res.json();
-  },
-
-  async submitComment(postId: string, content: string, parentId?: string) {
-    const res = await fetch(`/api/posts/${postId}/comments`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ content, parentId })
-    });
-    return res.json();
-  },
-
-  // Stories
-  async getStories() {
-    const res = await fetch('/api/stories', { headers: getHeaders() });
-    return res.json();
-  },
-
-  async createStory(storyData: { mediaUrl: string; mediaType: string }) {
-    const res = await fetch('/api/stories', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(storyData)
-    });
-    return res.json();
-  },
-
-  async viewStory(storyId: string) {
-    const res = await fetch(`/api/stories/${storyId}/view`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
-  },
-
-  // Discover People
-  async discoverPeople(filters: { range?: string; interest?: string; profession?: string; gender?: string; search?: string }) {
-    const params = new URLSearchParams(filters as any);
-    const res = await fetch(`/api/users/discover?${params.toString()}`, { headers: getHeaders() });
-    return res.json();
-  },
-
-  // Messaging / Chat Threads
-  async getThreads() {
-    const res = await fetch('/api/messaging/threads', { headers: getHeaders() });
-    return res.json();
-  },
-
-  async getMessages(threadId: string) {
-    const res = await fetch(`/api/messaging/threads/${threadId}/messages`, { headers: getHeaders() });
-    return res.json();
-  },
-
-  async sendMessage(threadId: string, content: string, file?: { mediaUrl: string; mediaType: string }) {
-    const body: any = { content };
-    if (file) {
-      body.mediaUrl = file.mediaUrl;
-      body.mediaType = file.mediaType;
+  async logout() {
+    try {
+      await request('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Already signed out on the server
     }
-    const res = await fetch(`/api/messaging/threads/${threadId}/messages`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(body)
-    });
-    return res.json();
+    writeToken(null);
   },
 
-  async startPrivateChat(recipientId: string) {
-    const res = await fetch('/api/messaging/start', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ recipientId })
-    });
-    return res.json();
+  changePassword(currentPassword: string, newPassword: string) {
+    return request('/api/auth/password', { method: 'PUT', body: { currentPassword, newPassword } });
   },
 
-  async startGroupChat(name: string, memberIds: string[]) {
-    const res = await fetch('/api/messaging/group', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ name, memberIds })
-    });
-    return res.json();
+  updateLocation(latitude: number, longitude: number, city?: string, state?: string, country?: string) {
+    return request<{ user: User }>('/api/auth/location', { method: 'POST', body: { latitude, longitude, city, state, country } });
   },
 
-  // Local Events
-  async getEvents(range: string = '50') {
-    const res = await fetch(`/api/events?range=${range}`, { headers: getHeaders() });
-    return res.json();
+  // ---------- Location lookup ----------
+  reverseGeocode(lat: number, lng: number) {
+    return request<Place>(`/api/geo/reverse?lat=${lat}&lng=${lng}`);
   },
 
-  async createEvent(eventData: any) {
-    const res = await fetch('/api/events', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(eventData)
-    });
-    return res.json();
+  searchPlaces(query: string) {
+    return request<Place[]>(`/api/geo/search?q=${enc(query)}`);
   },
 
-  async toggleEventJoin(id: string) {
-    const res = await fetch(`/api/events/${id}/join`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
+  // ---------- Uploads ----------
+  async uploadFile(file: Blob): Promise<UploadResult> {
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error('Files must be 8 MB or smaller.');
+    const dataUrl = await readAsDataUrl(file);
+    return request<UploadResult>('/api/uploads', { method: 'POST', body: { dataUrl } });
   },
 
-  // Business Directory
-  async getBusinesses(filters: { range?: string; category?: string; search?: string }) {
+  // ---------- Users ----------
+  async getMe() {
+    if (!readToken()) return null;
+    return request<User>('/api/users/me');
+  },
+
+  getUserProfile(id: string) {
+    return request(`/api/users/${enc(id)}`);
+  },
+
+  updateProfile(profileData: any) {
+    return request<{ user: User }>('/api/users/profile', { method: 'PUT', body: profileData });
+  },
+
+  async deleteAccount(password: string) {
+    await request('/api/users/me', { method: 'DELETE', body: { password } });
+    writeToken(null);
+  },
+
+  getSocialRelations() {
+    return request<SocialRelations>('/api/users/social-relations');
+  },
+
+  getFriends() {
+    return request<FriendsOverview>('/api/users/friends');
+  },
+
+  removeFriend(userId: string) {
+    return request(`/api/users/friends/${enc(userId)}`, { method: 'DELETE' });
+  },
+
+  sendFriendRequest(receiverId: string) {
+    return request('/api/users/friend-request', { method: 'POST', body: { receiverId } });
+  },
+
+  respondFriendRequest(requestId: string, respond: 'accepted' | 'declined') {
+    return request('/api/users/friend-respond', { method: 'POST', body: { requestId, respond } });
+  },
+
+  toggleFollow(targetId: string, targetType: 'user' | 'business') {
+    return request<{ following: boolean }>('/api/users/follow', { method: 'POST', body: { targetId, targetType } });
+  },
+
+  blockUser(blockedId: string) {
+    return request('/api/users/block', { method: 'POST', body: { blockedId } });
+  },
+
+  unblockUser(blockedId: string) {
+    return request('/api/users/unblock', { method: 'POST', body: { blockedId } });
+  },
+
+  getBlockedUsers() {
+    return request<User[]>('/api/users/blocked');
+  },
+
+  submitReport(targetId: string, targetType: string, reason: string) {
+    return request('/api/reports', { method: 'POST', body: { targetId, targetType, reason } });
+  },
+
+  discoverPeople(filters: { range?: string; interest?: string; profession?: string; gender?: string; search?: string }) {
     const params = new URLSearchParams(filters as any);
-    const res = await fetch(`/api/businesses?${params.toString()}`, { headers: getHeaders() });
-    return res.json();
+    return request(`/api/users/discover?${params.toString()}`);
   },
 
-  async createBusiness(bizData: any) {
-    const res = await fetch('/api/businesses', {
+  // ---------- Posts & comments ----------
+  createPost(postData: { type: string; content: string; mediaUrls?: string[]; pollOptions?: string[]; sharedPostId?: string }) {
+    return request('/api/posts', { method: 'POST', body: postData });
+  },
+
+  getFeed(range: string = '25') {
+    return request(`/api/posts/feed?range=${enc(range)}`);
+  },
+
+  editPost(id: string, content: string) {
+    return request(`/api/posts/${enc(id)}`, { method: 'PUT', body: { content } });
+  },
+
+  deletePost(id: string) {
+    return request(`/api/posts/${enc(id)}`, { method: 'DELETE' });
+  },
+
+  togglePostReact(id: string, reaction: 'like' | 'love') {
+    return request(`/api/posts/${enc(id)}/react`, { method: 'POST', body: { reaction } });
+  },
+
+  votePoll(postId: string, optionId: string) {
+    return request(`/api/posts/${enc(postId)}/vote`, { method: 'POST', body: { optionId } });
+  },
+
+  getComments(postId: string) {
+    return request(`/api/posts/${enc(postId)}/comments`);
+  },
+
+  submitComment(postId: string, content: string, parentId?: string) {
+    return request(`/api/posts/${enc(postId)}/comments`, { method: 'POST', body: { content, parentId } });
+  },
+
+  editComment(id: string, content: string) {
+    return request(`/api/comments/${enc(id)}`, { method: 'PUT', body: { content } });
+  },
+
+  deleteComment(id: string) {
+    return request(`/api/comments/${enc(id)}`, { method: 'DELETE' });
+  },
+
+  // ---------- Stories ----------
+  getStories() {
+    return request('/api/stories');
+  },
+
+  createStory(storyData: { mediaUrl: string; mediaType: string }) {
+    return request('/api/stories', { method: 'POST', body: storyData });
+  },
+
+  viewStory(storyId: string) {
+    return request(`/api/stories/${enc(storyId)}/view`, { method: 'POST' });
+  },
+
+  reactToStory(storyId: string, reaction: string) {
+    return request(`/api/stories/${enc(storyId)}/react`, { method: 'POST', body: { reaction } });
+  },
+
+  deleteStory(storyId: string) {
+    return request(`/api/stories/${enc(storyId)}`, { method: 'DELETE' });
+  },
+
+  // ---------- Messaging ----------
+  getThreads() {
+    return request('/api/messaging/threads');
+  },
+
+  getMessages(threadId: string) {
+    return request(`/api/messaging/threads/${enc(threadId)}/messages`);
+  },
+
+  sendMessage(threadId: string, content: string, file?: { mediaUrl: string; mediaType: string }) {
+    return request(`/api/messaging/threads/${enc(threadId)}/messages`, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(bizData)
+      body: { content, ...(file || {}) }
     });
-    return res.json();
   },
 
-  async getBusinessDashboard() {
-    const res = await fetch('/api/businesses/dashboard', { headers: getHeaders() });
-    return res.json();
+  startPrivateChat(recipientId: string) {
+    return request<{ id: string }>('/api/messaging/start', { method: 'POST', body: { recipientId } });
   },
 
-  async getBusinessOffers(id: string) {
-    const res = await fetch(`/api/businesses/${id}/offers`, { headers: getHeaders() });
-    return res.json();
+  startGroupChat(name: string, memberIds: string[]) {
+    return request('/api/messaging/group', { method: 'POST', body: { name, memberIds } });
   },
 
-  async addBusinessProduct(productData: any) {
-    const res = await fetch('/api/businesses/products', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(productData)
-    });
-    return res.json();
+  leaveGroup(threadId: string) {
+    return request(`/api/messaging/threads/${enc(threadId)}/leave`, { method: 'POST' });
   },
 
-  async updateBusiness(id: string, bizData: any) {
-    const res = await fetch(`/api/businesses/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(bizData)
-    });
-    return res.json();
+  // ---------- Events ----------
+  getEvents(range: string = '50', includePast = false) {
+    return request(`/api/events?range=${enc(range)}${includePast ? '&includePast=1' : ''}`);
   },
 
-  async updateBusinessProduct(id: string, productData: any) {
-    const res = await fetch(`/api/businesses/products/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(productData)
-    });
-    return res.json();
+  createEvent(eventData: any) {
+    return request('/api/events', { method: 'POST', body: eventData });
   },
 
-  async deleteBusinessProduct(id: string) {
-    const res = await fetch(`/api/businesses/products/${id}`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    });
-    return res.json();
+  updateEvent(id: string, eventData: any) {
+    return request(`/api/events/${enc(id)}`, { method: 'PUT', body: eventData });
   },
 
-  async addBusinessOffer(offerData: any) {
-    const res = await fetch('/api/businesses/offers', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(offerData)
-    });
-    return res.json();
+  deleteEvent(id: string) {
+    return request(`/api/events/${enc(id)}`, { method: 'DELETE' });
   },
 
-  async getReviews(targetId: string) {
-    const res = await fetch(`/api/reviews/${targetId}`, { headers: getHeaders() });
-    return res.json();
+  toggleEventJoin(id: string) {
+    return request(`/api/events/${enc(id)}/join`, { method: 'POST' });
   },
 
-  async submitReview(targetId: string, rating: number, comment: string) {
-    const res = await fetch('/api/reviews', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ targetId, rating, comment })
-    });
-    return res.json();
-  },
-
-  // Marketplace
-  async getMarketplaceProducts(filters: { category?: string; search?: string }) {
+  // ---------- Businesses ----------
+  getBusinesses(filters: { range?: string; category?: string; search?: string }) {
     const params = new URLSearchParams(filters as any);
-    const res = await fetch(`/api/marketplace/products?${params.toString()}`, { headers: getHeaders() });
-    return res.json();
+    return request(`/api/businesses?${params.toString()}`);
   },
 
-  async checkoutCart(items: { productId: string; quantity: number }[], address: string) {
-    const res = await fetch('/api/marketplace/checkout', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({ items, address })
-    });
-    return res.json();
+  createBusiness(bizData: any) {
+    return request('/api/businesses', { method: 'POST', body: bizData });
   },
 
-  async getOrders() {
-    const res = await fetch('/api/marketplace/orders', { headers: getHeaders() });
-    return res.json();
+  getBusinessDashboard(businessId?: string) {
+    return request(`/api/businesses/dashboard${businessId ? `?businessId=${enc(businessId)}` : ''}`);
   },
 
-  async updateOrderStatus(id: string, status: string) {
-    const res = await fetch(`/api/businesses/orders/${id}`, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify({ status })
-    });
-    return res.json();
+  getBusinessOffers(id: string) {
+    return request(`/api/businesses/${enc(id)}/offers`);
   },
 
-  // Notifications
-  async getNotifications() {
-    const res = await fetch('/api/notifications', { headers: getHeaders() });
-    return res.json();
+  addBusinessProduct(productData: any) {
+    return request('/api/businesses/products', { method: 'POST', body: productData });
   },
 
-  async markAllNotificationsRead() {
-    const res = await fetch('/api/notifications/read-all', {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
+  updateBusiness(id: string, bizData: any) {
+    return request(`/api/businesses/${enc(id)}`, { method: 'PUT', body: bizData });
   },
 
-  // Super Admin API
-  async getAdminMetrics() {
-    const res = await fetch('/api/admin/metrics', { headers: getHeaders() });
-    if (!res.ok) throw new Error('Unauthorized or not an admin.');
-    return res.json();
+  updateBusinessProduct(id: string, productData: any) {
+    return request(`/api/businesses/products/${enc(id)}`, { method: 'PUT', body: productData });
   },
 
-  async banUser(id: string) {
-    const res = await fetch(`/api/admin/users/${id}/ban`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
+  deleteBusinessProduct(id: string) {
+    return request(`/api/businesses/products/${enc(id)}`, { method: 'DELETE' });
   },
 
-  async verifyBusiness(id: string) {
-    const res = await fetch(`/api/admin/businesses/${id}/verify`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
+  addBusinessOffer(offerData: any) {
+    return request('/api/businesses/offers', { method: 'POST', body: offerData });
   },
 
-  async resolveReport(id: string) {
-    const res = await fetch(`/api/admin/reports/${id}/resolve`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-    return res.json();
+  deleteBusinessOffer(id: string) {
+    return request(`/api/businesses/offers/${enc(id)}`, { method: 'DELETE' });
+  },
+
+  getReviews(targetId: string) {
+    return request(`/api/reviews/${enc(targetId)}`);
+  },
+
+  submitReview(targetId: string, rating: number, comment: string) {
+    return request('/api/reviews', { method: 'POST', body: { targetId, rating, comment } });
+  },
+
+  // ---------- Marketplace ----------
+  getMarketplaceProducts(filters: { category?: string; search?: string; range?: string }) {
+    const params = new URLSearchParams(filters as any);
+    return request(`/api/marketplace/products?${params.toString()}`);
+  },
+
+  validatePromo(code: string, businessId?: string) {
+    const params = new URLSearchParams({ code, ...(businessId ? { businessId } : {}) });
+    return request<{ code: string; discountPercent: number; businessId: string | null }>(
+      `/api/marketplace/promo?${params.toString()}`
+    );
+  },
+
+  checkoutCart(items: { productId: string; quantity: number }[], address: string, promoCode?: string) {
+    return request('/api/marketplace/checkout', { method: 'POST', body: { items, address, promoCode } });
+  },
+
+  getOrders() {
+    return request('/api/marketplace/orders');
+  },
+
+  cancelOrder(id: string) {
+    return request(`/api/marketplace/orders/${enc(id)}/cancel`, { method: 'POST' });
+  },
+
+  updateOrderStatus(id: string, status: string) {
+    return request(`/api/businesses/orders/${enc(id)}`, { method: 'PUT', body: { status } });
+  },
+
+  // ---------- Notifications ----------
+  getNotifications() {
+    return request('/api/notifications');
+  },
+
+  markAllNotificationsRead() {
+    return request('/api/notifications/read-all', { method: 'POST' });
+  },
+
+  markNotificationRead(id: string) {
+    return request(`/api/notifications/${enc(id)}/read`, { method: 'POST' });
+  },
+
+  dismissNotification(id: string) {
+    return request(`/api/notifications/${enc(id)}`, { method: 'DELETE' });
+  },
+
+  // ---------- Admin ----------
+  getAdminMetrics() {
+    return request('/api/admin/metrics');
+  },
+
+  banUser(id: string) {
+    return request(`/api/admin/users/${enc(id)}/ban`, { method: 'POST' });
+  },
+
+  verifyBusiness(id: string) {
+    return request(`/api/admin/businesses/${enc(id)}/verify`, { method: 'POST' });
+  },
+
+  resolveReport(id: string) {
+    return request(`/api/admin/reports/${enc(id)}/resolve`, { method: 'POST' });
+  },
+
+  removeReportedContent(id: string) {
+    return request(`/api/admin/reports/${enc(id)}/remove-content`, { method: 'POST' });
   }
 };

@@ -3,14 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Circle, CircleMarker, MapContainer, TileLayer, Tooltip, useMap, useMapEvents } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api } from '../api';
-import { MapPin, Navigation, Store, Calendar, Users, Compass, RefreshCw } from 'lucide-react';
+import { toast } from './Toaster';
+import { User } from '../types';
+import { getCurrentPlace } from '../utils/geolocation';
+import { Calendar, Compass, Crosshair, MapPin, Navigation, Store, Users, X } from 'lucide-react';
+
+type PinType = 'me' | 'user' | 'business' | 'event';
 
 interface MapItem {
   id: string;
   name: string;
-  type: 'me' | 'user' | 'business' | 'event';
+  type: PinType;
   latitude: number;
   longitude: number;
   distanceKm?: number;
@@ -19,404 +26,267 @@ interface MapItem {
 }
 
 interface InteractiveMapProps {
-  currentUser: any;
-  onRelocate: (lat: number, lng: number, city: string, state: string) => void;
+  currentUser: User;
+  onRelocate: (lat: number, lng: number, city: string, state: string, country?: string) => void;
   setAppView: (view: string, targetId?: string) => void;
 }
 
-export function InteractiveMap({
-  currentUser,
-  onRelocate,
-  setAppView
-}: InteractiveMapProps) {
-  const [zoom, setZoom] = useState<number>(350); // Scale factor for coordinate conversion
-  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isRelocating, setIsRelocating] = useState<boolean>(false);
-  
-  // Plotted elements lists
+const PIN_COLORS: Record<PinType, string> = {
+  me: '#0d9488',
+  user: '#0ea5e9',
+  business: '#f43f5e',
+  event: '#f59e0b'
+};
+
+const DATA_RADIUS_KM = '50';
+
+const demoCities = [
+  { name: 'San Francisco', lat: 37.7749, lng: -122.4194, state: 'California', country: 'United States' },
+  { name: 'New York', lat: 40.7128, lng: -74.006, state: 'New York', country: 'United States' },
+  { name: 'London', lat: 51.5074, lng: -0.1278, state: 'England', country: 'United Kingdom' },
+  { name: 'Tokyo', lat: 35.6762, lng: 139.6503, state: 'Tokyo', country: 'Japan' }
+];
+
+function Recenter({ lat, lng }: { lat: number; lng: number }) {
+  const map = useMap();
+  useEffect(() => {
+    map.setView([lat, lng], map.getZoom());
+  }, [lat, lng, map]);
+  return null;
+}
+
+function ClickHandler({ enabled, onPick }: { enabled: boolean; onPick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click: (e) => {
+      if (enabled) onPick(e.latlng.lat, e.latlng.lng);
+    }
+  });
+  return null;
+}
+
+export function InteractiveMap({ currentUser, onRelocate, setAppView }: InteractiveMapProps) {
   const [mapItems, setMapItems] = useState<MapItem[]>([]);
   const [selectedPin, setSelectedPin] = useState<MapItem | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isRelocating, setIsRelocating] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+  const [visible, setVisible] = useState<Record<'user' | 'business' | 'event', boolean>>({ user: true, business: true, event: true });
 
-  // Fallback defaults if GPS is empty
-  const userLat = currentUser?.location?.latitude || 40.7128;
-  const userLng = currentUser?.location?.longitude || -74.0060;
-  const userCity = currentUser?.city || 'New York';
-  const userState = currentUser?.state || 'NY';
-
-  const demoCities = [
-    { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194, city: 'San Francisco', state: 'CA' },
-    { name: 'New York, NY', lat: 40.7128, lng: -74.0060, city: 'New York', state: 'NY' },
-    { name: 'London, UK', lat: 51.5074, lng: -0.1278, city: 'London', state: 'ENG' },
-    { name: 'Tokyo, Japan', lat: 35.6762, lng: 139.6503, city: 'Tokyo', state: 'TYO' }
-  ];
-
-  const fetchPlottedPins = async () => {
-    setIsLoading(true);
-    try {
-      const items: MapItem[] = [];
-
-      // Add "Me" anchor
-      items.push({
-        id: 'me',
-        name: 'My GPS Location',
-        type: 'me',
-        latitude: userLat,
-        longitude: userLng,
-        details: 'You are anchored here'
-      });
-
-      // 1. Fetch people
-      try {
-        const users = await api.discoverPeople({ range: '50' });
-        users.forEach((u: any) => {
-          if (u.id !== currentUser?.id) {
-            items.push({
-              id: u.id,
-              name: u.name,
-              type: 'user',
-              latitude: u.location?.latitude || 37.7749,
-              longitude: u.location?.longitude || -122.4194,
-              distanceKm: u.distanceKm,
-              details: u.profession || 'Neighboring Resident'
-            });
-          }
-        });
-      } catch (e) {
-        console.error(e);
-      }
-
-      // 2. Fetch businesses
-      try {
-        const bizs = await api.getBusinesses({ range: '50' });
-        bizs.forEach((b: any) => {
-          items.push({
-            id: b.id,
-            name: b.name,
-            type: 'business',
-            latitude: b.latitude || 37.7749,
-            longitude: b.longitude || -122.4194,
-            distanceKm: b.distanceKm,
-            category: b.category,
-            details: b.description
-          });
-        });
-      } catch (e) {
-        console.error(e);
-      }
-
-      // 3. Fetch events
-      try {
-        const evts = await api.getEvents('50');
-        evts.forEach((e: any) => {
-          items.push({
-            id: e.id,
-            name: e.name,
-            type: 'event',
-            latitude: e.latitude || 37.7749,
-            longitude: e.longitude || -122.4194,
-            distanceKm: e.distanceKm,
-            details: `${e.date} at ${e.time}`
-          });
-        });
-      } catch (err) {
-        console.error(err);
-      }
-
-      setMapItems(items);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const userLat = currentUser.location.latitude;
+  const userLng = currentUser.location.longitude;
+  const placeName = [currentUser.location.city, currentUser.location.state].filter(Boolean).join(', ') || 'Unknown place';
 
   useEffect(() => {
-    fetchPlottedPins();
+    let cancelled = false;
+    (async () => {
+      const [people, shops, events] = await Promise.allSettled([
+        api.discoverPeople({ range: DATA_RADIUS_KM }),
+        api.getBusinesses({ range: DATA_RADIUS_KM }),
+        api.getEvents(DATA_RADIUS_KM)
+      ]);
+      if (cancelled) return;
+      const items: MapItem[] = [];
+      if (people.status === 'fulfilled') {
+        people.value.forEach((u: any) =>
+          items.push({ id: u.id, name: u.name, type: 'user', latitude: u.location.latitude, longitude: u.location.longitude, distanceKm: u.distanceKm, details: u.profession || 'Neighbor' })
+        );
+      }
+      if (shops.status === 'fulfilled') {
+        shops.value.forEach((b: any) =>
+          items.push({ id: b.id, name: b.name, type: 'business', latitude: b.latitude, longitude: b.longitude, distanceKm: b.distanceKm, category: b.category, details: b.address })
+        );
+      }
+      if (events.status === 'fulfilled') {
+        events.value.forEach((e: any) =>
+          items.push({ id: e.id, name: e.name, type: 'event', latitude: e.latitude, longitude: e.longitude, distanceKm: e.distanceKm, details: `${e.date} · ${e.time}` })
+        );
+      }
+      setMapItems(items);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [userLat, userLng]);
 
-  // Formula to derive relative coordinates on SVG map board
-  const getRelativeXY = (itemLat: number, itemLng: number) => {
-    const x = (itemLng - userLng) * zoom + 300 + dragOffset.x;
-    const y = -(itemLat - userLat) * zoom + 200 + dragOffset.y;
-    return { x, y };
-  };
-
-  const handleMapClick = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    // Convert pixels to coordinates back
-    const targetLng = (clickX - 300 - dragOffset.x) / zoom + userLng;
-    const targetLat = -(clickY - 200 - dragOffset.y) / zoom + userLat;
-
-    if (isRelocating) {
-      onRelocate(
-        Number(targetLat.toFixed(5)),
-        Number(targetLng.toFixed(5)),
-        'Custom Anchor Location',
-        'SIM'
-      );
-      setIsRelocating(false);
+  const relocateTo = async (lat: number, lng: number) => {
+    setIsRelocating(false);
+    const latitude = Number(lat.toFixed(5));
+    const longitude = Number(lng.toFixed(5));
+    try {
+      const place = await api.reverseGeocode(latitude, longitude);
+      onRelocate(latitude, longitude, place.city || place.name, place.state, place.country);
+    } catch {
+      onRelocate(latitude, longitude, 'Pinned location', '');
     }
   };
 
-  const handleQuickInquiry = (pin: MapItem) => {
-    if (pin.type === 'user') setAppView('people', pin.id);
+  const useGps = async () => {
+    setIsLocating(true);
+    try {
+      const place = await getCurrentPlace();
+      onRelocate(place.latitude, place.longitude, place.city || place.name, place.state, place.country);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not get your location.');
+    } finally {
+      setIsLocating(false);
+    }
+  };
+
+  const openPin = (pin: MapItem) => {
+    if (pin.type === 'user') setAppView('profile', pin.id);
     if (pin.type === 'business') setAppView('business', pin.id);
     if (pin.type === 'event') setAppView('events', pin.id);
   };
 
+  const me: MapItem = { id: 'me', name: 'You are here', type: 'me', latitude: userLat, longitude: userLng, details: placeName };
+  const shown = mapItems.filter((i) => i.type !== 'me' && visible[i.type as 'user' | 'business' | 'event']);
+
   return (
-    <div className="relative bg-teal-50/40 rounded-3xl border border-gray-100 overflow-hidden shadow-sm flex flex-col h-[520px] w-full" id="interactive-map">
-      
-      {/* Top Banner Control Panel */}
-      <div className="absolute top-4 left-4 right-4 z-10 flex flex-col sm:flex-row gap-2">
-        {/* Active position card */}
-        <div className="bg-white/95 backdrop-blur-md px-4 py-3 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between flex-1">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 animate-pulse">
-              <MapPin size={20} />
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 font-bold uppercase tracking-wider block">Real-time Center Location</p>
-              <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2 mt-1">
-                {userCity}, {userState}
-                <span className="font-mono text-[9px] bg-teal-100/60 text-teal-700 px-1.5 py-0.5 rounded-md">
-                  {userLat.toFixed(4)}, {userLng.toFixed(4)}
-                </span>
-              </h3>
-            </div>
+    <div className="space-y-3" id="interactive-map">
+      {/* Controls */}
+      <div className="bg-white rounded-3xl border border-gray-200 shadow-sm p-4 flex flex-col lg:flex-row gap-3 lg:items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+            <MapPin size={20} />
           </div>
-          
-          <button
-            onClick={() => setIsRelocating(!isRelocating)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
-              isRelocating
-                ? 'bg-amber-500 text-white animate-bounce'
-                : 'bg-teal-600 text-white hover:bg-teal-700'
-            }`}
-          >
-            <Compass size={14} className={isRelocating ? 'animate-spin' : ''} />
-            {isRelocating ? 'Click on Map Canvas to Drop Pin' : 'Relocate Sim GPS Point'}
-          </button>
+          <div className="min-w-0">
+            <p className="text-xs text-gray-500 font-semibold">Your location</p>
+            <h3 className="font-semibold text-gray-800 text-sm truncate">
+              {placeName}
+              <span className="ml-2 font-mono text-[11px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded-md">
+                {userLat.toFixed(4)}, {userLng.toFixed(4)}
+              </span>
+            </h3>
+          </div>
         </div>
 
-        {/* Quick presets list */}
-        <div className="bg-white/95 backdrop-blur-md px-2 py-1.5 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-1 overflow-x-auto overflow-y-hidden max-w-full shrink-0">
-          <span className="text-[10px] text-gray-400 font-bold px-2 uppercase tracking-wider">Presets:</span>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={useGps}
+            disabled={isLocating}
+            className="px-3 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white flex items-center gap-1.5"
+          >
+            <Crosshair size={14} /> {isLocating ? 'Locating...' : 'Use my GPS'}
+          </button>
+          <button
+            onClick={() => setIsRelocating(!isRelocating)}
+            className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ${
+              isRelocating ? 'bg-amber-500 text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+            }`}
+          >
+            <Compass size={14} /> {isRelocating ? 'Click the map to set location' : 'Move my location'}
+          </button>
           {demoCities.map((city) => (
             <button
               key={city.name}
-              onClick={() => onRelocate(city.lat, city.lng, city.city, city.state)}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] whitespace-nowrap font-medium transition-all ${
-                Math.abs(userLat - city.lat) < 0.01
-                  ? 'bg-teal-50 text-teal-700 font-bold border border-teal-200'
-                  : 'text-gray-500 hover:bg-gray-50'
+              onClick={() => onRelocate(city.lat, city.lng, city.name, city.state, city.country)}
+              className={`px-2.5 py-2 rounded-xl text-xs font-medium ${
+                Math.abs(userLat - city.lat) < 0.05 && Math.abs(userLng - city.lng) < 0.05
+                  ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                  : 'text-gray-600 hover:bg-gray-100 border border-gray-200'
               }`}
             >
-              {city.name.split(',')[0]}
+              {city.name}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Map visual stage canvas */}
-      <div className="relative flex-1 bg-gradient-to-b from-blue-50/50 via-teal-50/20 to-emerald-50/50 flex items-center justify-center">
-        
-        {/* Concentric distance helper scale rings */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-          <div className="w-[120px] h-[120px] rounded-full border border-teal-200/40 bg-teal-100/5 flex items-center justify-center">
-            <span className="text-[8.5px] text-teal-400 font-mono font-bold mt-14">5 KM</span>
-          </div>
-          <div className="absolute w-[260px] h-[260px] rounded-full border border-teal-300/20 bg-teal-200/2 flex items-center justify-center text-center">
-            <span className="text-[8.5px] text-teal-400/80 font-mono font-bold mt-48">15 KM</span>
-          </div>
-          <div className="absolute w-[460px] h-[460px] rounded-full border border-teal-300/10 flex items-center justify-center">
-            <span className="text-[8.5px] text-teal-300/60 font-mono font-bold mt-84">50 KM</span>
-          </div>
-        </div>
+      {/* Map */}
+      <div className={`relative rounded-3xl overflow-hidden border border-gray-200 shadow-sm h-[60vh] min-h-[360px] ${isRelocating ? 'cursor-crosshair' : ''}`}>
+        <MapContainer center={[userLat, userLng]} zoom={13} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <Recenter lat={userLat} lng={userLng} />
+          <ClickHandler enabled={isRelocating} onPick={relocateTo} />
 
-        <svg
-          className="w-full h-full absolute inset-0 cursor-crosshair select-none"
-          onClick={handleMapClick}
-        >
-          {/* Active SVG lines to create coordinate system mesh */}
-          <line x1="0" y1="200" x2="600" y2="200" stroke="#0d9488" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.3" />
-          <line x1="300" y1="0" x2="300" y2="400" stroke="#0d9488" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.3" />
+          {[5, 15, 50].map((km) => (
+            <Circle
+              key={km}
+              center={[userLat, userLng]}
+              radius={km * 1000}
+              pathOptions={{ color: '#0d9488', weight: 1, opacity: 0.35, fillOpacity: km === 5 ? 0.04 : 0, dashArray: '4 6' }}
+            >
+              <Tooltip direction="top" opacity={0.8}>{km} km</Tooltip>
+            </Circle>
+          ))}
 
-          {/* Render individual items as beautifully customized coordinate nodes */}
-          {mapItems.map((item) => {
-            const { x, y } = getRelativeXY(item.latitude, item.longitude);
-            
-            // Filter out of bounds coordinates
-            if (x < 15 || x > 585 || y < 15 || y > 385) return null;
+          {shown.map((item) => (
+            <CircleMarker
+              key={`${item.type}-${item.id}`}
+              center={[item.latitude, item.longitude]}
+              radius={8}
+              pathOptions={{ color: '#fff', weight: 2, fillColor: PIN_COLORS[item.type], fillOpacity: 1 }}
+              eventHandlers={{ click: () => setSelectedPin(item) }}
+            >
+              <Tooltip direction="top" offset={[0, -6]}>{item.name}</Tooltip>
+            </CircleMarker>
+          ))}
 
-            const isMe = item.type === 'me';
-            const colorClass = 
-              isMe ? '#0d9488' : 
-              item.type === 'business' ? '#f43f5e' : 
-              item.type === 'event' ? '#f59e0b' : 
-              '#0ea5e9';
+          <CircleMarker
+            center={[userLat, userLng]}
+            radius={11}
+            pathOptions={{ color: '#fff', weight: 3, fillColor: PIN_COLORS.me, fillOpacity: 1 }}
+            eventHandlers={{ click: () => setSelectedPin(me) }}
+          >
+            <Tooltip direction="top" offset={[0, -8]}>You are here</Tooltip>
+          </CircleMarker>
+        </MapContainer>
 
-            return (
-              <g
-                key={item.id}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPin(item);
-                }}
-                className="cursor-pointer group"
-                id={`map-pin-${item.id}`}
-              >
-                {/* Dynamic radial pulsing glow effect */}
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={isMe ? 12 : 9}
-                  fill={colorClass}
-                  fillOpacity="0.25"
-                  className={isMe ? 'animate-ping' : 'group-hover:scale-125 transition-transform'}
-                />
-
-                {/* Pin Head */}
-                <circle
-                  cx={x}
-                  cy={y}
-                  r={isMe ? 6 : 4.5}
-                  fill={colorClass}
-                  stroke="#ffffff"
-                  strokeWidth="1.5"
-                />
-
-                {/* Tooltip on Hover */}
-                <text
-                  x={x}
-                  y={y - 12}
-                  textAnchor="middle"
-                  fill="#1f2937"
-                  fontSize="9px"
-                  fontWeight="bold"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity bg-white px-2 py-1 pointers-event-none pointer-events-none font-sans"
-                >
-                  {item.name}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Selected Map Pin details bottom drawer slider */}
+        {/* Selected pin card */}
         {selectedPin && (
-          <div className="absolute bottom-4 left-4 right-4 bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-gray-150 shadow-lg flex gap-4 items-center animate-fade-in z-10 text-left">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-white ${
-              selectedPin.type === 'business'
-                ? 'bg-rose-500'
-                : selectedPin.type === 'event'
-                ? 'bg-amber-500'
-                : selectedPin.type === 'me'
-                ? 'bg-teal-600'
-                : 'bg-sky-500'
-            }`}>
-              {selectedPin.type === 'business' ? (
-                <Store size={22} />
-              ) : selectedPin.type === 'event' ? (
-                <Calendar size={22} />
-              ) : selectedPin.type === 'me' ? (
-                <Compass size={22} />
-              ) : (
-                <Users size={22} strokeWidth={2.5} />
-              )}
+          <div className="absolute bottom-3 left-3 right-3 z-[1000] bg-white/95 backdrop-blur-md p-4 rounded-2xl border border-gray-200 shadow-lg flex gap-3 items-center animate-fade-in">
+            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 text-white" style={{ background: PIN_COLORS[selectedPin.type] }}>
+              {selectedPin.type === 'business' ? <Store size={22} /> : selectedPin.type === 'event' ? <Calendar size={22} /> : selectedPin.type === 'me' ? <Compass size={22} /> : <Users size={22} />}
             </div>
-            
             <div className="flex-1 min-w-0">
-              <span className={`text-[8.5px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                selectedPin.type === 'business'
-                  ? 'bg-rose-50 text-rose-700'
-                  : selectedPin.type === 'event'
-                  ? 'bg-amber-50 text-amber-700'
-                  : selectedPin.type === 'me'
-                  ? 'bg-teal-50 text-teal-700'
-                  : 'bg-sky-50 text-sky-700'
-              }`}>
-                {selectedPin.type} {selectedPin.category ? `• ${selectedPin.category}` : ''}
-              </span>
-              <h4 className="font-bold text-gray-800 text-xs sm:text-sm mt-1 truncate">{selectedPin.name}</h4>
-              <p className="text-[11px] text-gray-500 mt-0.5 truncate leading-none">{selectedPin.details}</p>
-              
-              <div className="flex items-center gap-3 mt-2 text-[10px] text-gray-400 font-mono font-bold">
-                <span className="flex items-center gap-1 text-teal-600">
-                  <Navigation size={10} />
-                  {selectedPin.type === 'me' ? 'Center Point' : selectedPin.distanceKm !== undefined ? `${selectedPin.distanceKm.toFixed(1)} km away` : 'Within 1km'}
-                </span>
-                <span className="hidden sm:inline">Lat: {selectedPin.latitude.toFixed(4)}</span>
-                <span className="hidden sm:inline">Lng: {selectedPin.longitude.toFixed(4)}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-1 shrink-0">
-              {selectedPin.type !== 'me' && (
-                <button
-                  onClick={() => handleQuickInquiry(selectedPin)}
-                  className="px-3.5 py-1.5 rounded-xl bg-gray-900 text-white font-bold text-xs hover:bg-gray-800 transition-all shadow-sm whitespace-nowrap"
-                >
-                  Inspect Portal
-                </button>
+              <h4 className="font-bold text-gray-800 text-sm truncate">{selectedPin.name}</h4>
+              <p className="text-xs text-gray-500 truncate">
+                {selectedPin.category ? `${selectedPin.category} · ` : ''}
+                {selectedPin.details}
+              </p>
+              {selectedPin.distanceKm !== undefined && (
+                <p className="text-xs text-teal-700 font-semibold flex items-center gap-1 mt-0.5">
+                  <Navigation size={11} /> {selectedPin.distanceKm.toFixed(1)} km away
+                </p>
               )}
-              <button
-                onClick={() => setSelectedPin(null)}
-                className="text-[10px] text-gray-400 hover:text-gray-600 font-bold uppercase"
-              >
-                Dismiss
-              </button>
             </div>
+            {selectedPin.type !== 'me' && (
+              <button onClick={() => openPin(selectedPin)} className="px-3.5 py-2 rounded-xl bg-gray-900 text-white font-bold text-xs hover:bg-gray-800 shrink-0">
+                View details
+              </button>
+            )}
+            <button onClick={() => setSelectedPin(null)} className="p-1.5 text-gray-400 hover:text-gray-700" aria-label="Close">
+              <X size={16} />
+            </button>
           </div>
         )}
       </div>
 
-      {/* Control scale helpers */}
-      <div className="absolute right-4 bottom-4 flex flex-col gap-1 z-10 bg-white/95 backdrop-blur-md p-1.5 rounded-xl shadow-sm border border-gray-100">
-        <button
-          onClick={() => setZoom(Math.min(zoom + 100, 750))}
-          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-gray-700 hover:bg-gray-100 transition-all text-sm"
-          title="Zoom In"
-        >
-          +
-        </button>
-        <button
-          onClick={() => setZoom(Math.max(zoom - 100, 150))}
-          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-gray-700 hover:bg-gray-100 transition-all text-sm"
-          title="Zoom Out"
-        >
-          −
-        </button>
-      </div>
-
-      {/* Map Legend */}
-      <div className="bg-gray-50/90 border-t border-gray-100 px-4 py-2.5 flex items-center justify-between text-xs text-gray-500 shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-teal-600"></span>
-            <span className="font-semibold text-gray-700">You (GPS)</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
-            <span className="font-semibold text-gray-700">Neighbors</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            <span className="font-semibold text-gray-700">Shops</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            <span className="font-semibold text-gray-700">Local Events</span>
-          </div>
-        </div>
-
-        <div className="hidden sm:block text-[11px] font-mono text-gray-400">
-          Scale: approx 100px = {(400 / zoom).toFixed(1)}KM
-        </div>
+      {/* Legend + layer toggles */}
+      <div className="bg-white rounded-2xl border border-gray-200 px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+        <span className="flex items-center gap-1.5 font-semibold text-gray-700">
+          <span className="w-3 h-3 rounded-full" style={{ background: PIN_COLORS.me }} /> You
+        </span>
+        {(
+          [
+            ['user', 'Neighbors'],
+            ['business', 'Shops'],
+            ['event', 'Events']
+          ] as const
+        ).map(([type, label]) => (
+          <label key={type} className="flex items-center gap-1.5 font-semibold text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={visible[type]}
+              onChange={() => setVisible({ ...visible, [type]: !visible[type] })}
+              className="accent-teal-600"
+            />
+            <span className="w-3 h-3 rounded-full" style={{ background: PIN_COLORS[type] }} /> {label} ({mapItems.filter((i) => i.type === type).length})
+          </label>
+        ))}
+        <span className="text-gray-400 ml-auto hidden sm:inline">Rings show 5, 15 and 50 km</span>
       </div>
     </div>
   );

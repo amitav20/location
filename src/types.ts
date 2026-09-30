@@ -63,6 +63,13 @@ export interface UserBlock {
   createdAt: string;
 }
 
+// Everything the current user has sent/received/followed/blocked
+export interface SocialRelations {
+  friendRequests: FriendRequest[];
+  following: Follow[];
+  blocked: UserBlock[];
+}
+
 // Social Feed: Posts
 export type PostType = 'text' | 'image' | 'video' | 'poll' | 'shared';
 
@@ -93,6 +100,8 @@ export interface Post {
   authorPhoto?: string;
   distanceKm?: number;
   sharedPost?: Post; // Populated shared post details
+  commentCount?: number;
+  editedAt?: string;
 }
 
 export interface Comment {
@@ -102,6 +111,7 @@ export interface Comment {
   parentId?: string; // For replies
   content: string;
   createdAt: string;
+  editedAt?: string;
   // Join helpers
   userName?: string;
   userPhoto?: string;
@@ -120,6 +130,7 @@ export interface Story {
   // Join helpers
   userName?: string;
   userPhoto?: string;
+  distanceKm?: number;
 }
 
 // Messaging System
@@ -148,6 +159,15 @@ export interface ChatGroup {
   lastMessageContent?: string;
   lastMessageAt?: string;
   unreadCount?: number; // computed per user
+  members?: MemberSummary[]; // computed: who is in the conversation
+  otherUserId?: string; // computed: the other person in a one-to-one chat
+}
+
+// Small user card used in lists (event attendees, chat members)
+export interface MemberSummary {
+  id: string;
+  name: string;
+  profilePhoto: string;
 }
 
 // Local Events
@@ -167,6 +187,8 @@ export interface LocalEvent {
   // Join helpers
   creatorName?: string;
   distanceKm?: number;
+  participantsInfo?: MemberSummary[];
+  isPast?: boolean;
 }
 
 // Local Business Module
@@ -201,11 +223,13 @@ export interface Business {
   distanceKm?: number;
   averageRating?: number;
   followersCount?: number;
+  isFollowing?: boolean;
   // Custom brand micro-site parameters
   themeVibe?: string; // 'minimal' | 'vintage' | 'neon' | 'organic'
   tagline?: string;
   instagramUrl?: string;
   twitterUrl?: string;
+  openingHours?: string; // free text, e.g. "Mon-Fri 9:00-18:00, Sat 10:00-14:00"
 }
 
 // Products & Offers (Marketplace)
@@ -221,6 +245,7 @@ export interface Product {
   createdAt: string;
   // Helpers
   businessName?: string;
+  distanceKm?: number;
 }
 
 export interface BusinessOffer {
@@ -265,6 +290,9 @@ export interface Order {
   userId: string;
   businessId: string;
   items: OrderItem[];
+  subtotalAmount?: number; // before promo discount
+  discountPercent?: number;
+  promoCode?: string;
   totalAmount: number;
   status: 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   address: string;
@@ -284,7 +312,9 @@ export type NotificationType =
   | 'love'
   | 'business_update'
   | 'event_invite'
-  | 'announcement';
+  | 'announcement'
+  | 'follow'
+  | 'story_reaction';
 
 export interface Notification {
   id: string;
@@ -306,11 +336,20 @@ export interface Report {
   id: string;
   reporterId: string;
   targetId: string; //postId, commentId, userId, businessId
-  targetType: 'post' | 'comment' | 'user' | 'business' | 'product';
+  targetType: 'post' | 'comment' | 'user' | 'business' | 'product' | 'story';
   reason: string;
   status: 'pending' | 'reviewed' | 'resolved';
   createdAt: string;
   // Helpers
   reporterName?: string;
   targetName?: string; // Username, Title, etc.
+  targetPreview?: string; // Short excerpt of the reported content
+  targetExists?: boolean;
+}
+
+// Friends page data
+export interface FriendsOverview {
+  friends: (User & { distanceKm?: number })[];
+  incoming: { request: FriendRequest; user: User }[];
+  outgoing: { request: FriendRequest; user: User }[];
 }

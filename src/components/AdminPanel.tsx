@@ -3,20 +3,47 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../api';
-import { AlertCircle, Shield, Check, Ban, CheckSquare, Trash2, ArrowUpRight } from 'lucide-react';
+import { toast, confirmAction } from './Toaster';
+import { timeAgo } from '../utils/time';
+import { Report, User } from '../types';
+import { AlertCircle, CheckSquare, Search, Shield, Trash2 } from 'lucide-react';
 
-export function AdminPanel() {
+interface AdminPanelProps {
+  currentUser: User;
+}
+
+interface AdminUserRow {
+  id: string;
+  name: string;
+  username: string;
+  email: string;
+  isBanned: boolean;
+  isAdmin: boolean;
+}
+
+interface AdminBusinessRow {
+  id: string;
+  name: string;
+  category: string;
+  isVerified: boolean;
+  ownerName: string;
+}
+
+const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
+
+export function AdminPanel({ currentUser }: AdminPanelProps) {
   const [metrics, setMetrics] = useState<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
-  const [businesses, setBusinesses] = useState<any[]>([]);
-  const [reports, setReports] = useState<any[]>([]);
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
+  const [businesses, setBusinesses] = useState<AdminBusinessRow[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [showResolved, setShowResolved] = useState(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [adminErr, setAdminErr] = useState<string>('');
 
-  const fetchAdminWorkspace = async () => {
-    setIsLoading(true);
+  const load = async () => {
     setAdminErr('');
     try {
       const res = await api.getAdminMetrics();
@@ -24,203 +51,197 @@ export function AdminPanel() {
       setUsers(res.users);
       setBusinesses(res.businesses);
       setReports(res.reports);
-    } catch (err: any) {
-      setAdminErr(err.message || 'You must be logged in as an administrator to inspect superadmin statistics.');
+    } catch (err) {
+      setAdminErr(errorText(err, 'You must be an administrator to see this page.'));
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAdminWorkspace();
+    load();
   }, []);
 
-  const handleBanUser = async (uId: string) => {
+  const act = async (action: () => Promise<unknown>, success: string) => {
     try {
-      const res = await api.banUser(uId);
-      setUsers(users.map((u) => (u.id === uId ? { ...u, isBanned: res.banned } : u)));
-      fetchAdminWorkspace();
+      await action();
+      toast.success(success);
+      load();
     } catch (err) {
-      console.error(err);
+      toast.error(errorText(err, 'Something went wrong.'));
     }
   };
 
-  const handleVerifyBusiness = async (bId: string) => {
-    try {
-      const res = await api.verifyBusiness(bId);
-      setBusinesses(businesses.map((b) => (b.id === bId ? { ...b, isVerified: res.verified } : b)));
-      fetchAdminWorkspace();
-    } catch (err) {
-      console.error(err);
-    }
+  const toggleBan = async (u: AdminUserRow) => {
+    if (!u.isBanned && !(await confirmAction(`Ban ${u.name}? They will be signed out and unable to sign in.`, 'Ban'))) return;
+    act(() => api.banUser(u.id), u.isBanned ? `${u.name} was unbanned.` : `${u.name} was banned.`);
   };
 
-  const handleResolveReport = async (rId: string) => {
-    try {
-      await api.resolveReport(rId);
-      setReports(reports.map((r) => (r.id === rId ? { ...r, status: 'resolved' } : r)));
-      fetchAdminWorkspace();
-    } catch (err) {
-      console.error(err);
-    }
+  const removeContent = async (r: Report) => {
+    const what = r.targetType === 'user' ? 'ban this user' : `delete this ${r.targetType}`;
+    if (!(await confirmAction(`Do you want to ${what}? This resolves all reports about it.`, 'Confirm'))) return;
+    act(() => api.removeReportedContent(r.id), 'Done. The report is resolved.');
   };
 
   if (adminErr) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-3xl p-6 text-center space-y-3">
         <AlertCircle size={34} className="text-red-500 mx-auto" />
-        <h3 className="font-bold text-red-800 text-sm">Administrative Permission Blocked</h3>
+        <h3 className="font-bold text-red-800 text-sm">Admin access required</h3>
         <p className="text-xs text-red-700 max-w-md mx-auto">{adminErr}</p>
-        <p className="text-[11px] text-gray-450">Please log in utilizing the Administrator seed credential username &ldquo;admin&rdquo; from the Login/Register panel at the top right profile bubble!</p>
       </div>
     );
   }
 
+  const shownUsers = users.filter(
+    (u) => !userSearch || u.name.toLowerCase().includes(userSearch.toLowerCase()) || u.username.toLowerCase().includes(userSearch.toLowerCase())
+  );
+  const sortedBusinesses = [...businesses].sort((a, b) => Number(a.isVerified) - Number(b.isVerified));
+  const shownReports = reports.filter((r) => showResolved || r.status !== 'resolved');
+
   return (
     <div className="space-y-6" id="admin-workspace">
-      {/* Search Header Banner */}
-      <div className="bg-gradient-to-r from-red-600 to-rose-600 rounded-3xl p-6 text-white shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-red-600 to-rose-600 rounded-3xl p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold font-display flex items-center gap-2">
-            <Shield size={22} />
-            Super-Admin Moderation Workspace
+            <Shield size={22} /> Admin Dashboard
           </h2>
-          <p className="text-xs text-rose-150 mt-1">Audit neighbor profiles, verify new business establishments, and investigate reports logs.</p>
+          <p className="text-xs text-rose-100 mt-1">Manage users, verify businesses and review reports.</p>
         </div>
-        <button
-          onClick={fetchAdminWorkspace}
-          className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
-        >
-          Recorrelate Statistics
+        <button onClick={load} className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-bold rounded-xl">
+          Refresh
         </button>
       </div>
 
       {isLoading ? (
         <div className="text-center py-12">
           <div className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest animate-pulse">Assembling administrative system registries...</p>
+          <p className="text-xs text-gray-500 font-semibold">Loading admin data...</p>
         </div>
       ) : (
         <>
-          {/* Quick Metrics Cards */}
           {metrics && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
-                { label: 'Active Neighbors', count: metrics.activeUsers, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-                { label: 'Banned Accounts', count: metrics.bannedCount, color: 'text-red-650', bg: 'bg-red-50' },
-                { label: 'Verified Spots', count: metrics.verifiedBiz, color: 'text-teal-600', bg: 'bg-teal-50' },
-                { label: 'Pending Verifications', count: metrics.unverifiedBiz, color: 'text-amber-600', bg: 'bg-amber-50' },
-                { label: 'Active Social Posts', count: metrics.totalPosts, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-                { label: 'Content Reports', count: metrics.pendingReports, color: 'text-rose-600', bg: 'bg-rose-50' }
-              ].map((m, i) => (
-                <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-xs text-center flex flex-col justify-center">
-                  <span className="text-[9.5px] text-gray-400 font-bold uppercase tracking-wider block leading-snug">{m.label}</span>
-                  <p className={`text-lg font-bold font-mono mt-1.5 ${m.color}`}>{m.count}</p>
+                { label: 'Active users', count: metrics.activeUsers, color: 'text-emerald-600' },
+                { label: 'Banned', count: metrics.bannedCount, color: 'text-red-600' },
+                { label: 'Verified shops', count: metrics.verifiedBiz, color: 'text-teal-600' },
+                { label: 'Awaiting verification', count: metrics.unverifiedBiz, color: 'text-amber-600' },
+                { label: 'Posts', count: metrics.totalPosts, color: 'text-indigo-600' },
+                { label: 'Open reports', count: metrics.pendingReports, color: 'text-rose-600' }
+              ].map((m) => (
+                <div key={m.label} className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
+                  <span className="text-xs text-gray-500 font-bold block">{m.label}</span>
+                  <p className={`text-2xl font-bold mt-1 ${m.color}`}>{m.count}</p>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Three columns list workspace */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* USER CONTROL PANEL */}
-            <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-              <h3 className="font-bold text-xs uppercase tracking-widest text-red-600 border-b border-gray-50 pb-2 flex items-center justify-between">
-                <span>Neighbor Accounts Registry</span>
-                <span className="text-gray-400 font-mono text-[10px]">({users.length})</span>
-              </h3>
-
-              <div className="space-y-3 max-h-[420px] overflow-y-auto">
-                {users.map((u) => (
-                  <div key={u.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-800 truncate">{u.name}</p>
-                      <span className="text-[10px] text-gray-400 block font-semibold">@{u.username}</span>
-                    </div>
-
-                    <button
-                      onClick={() => handleBanUser(u.id)}
-                      className={`px-3 py-1.5 rounded-xl font-bold uppercase text-[9.5px] shrink-0 transition-all ${
-                        u.isBanned
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-red-50 text-red-700 hover:bg-red-100'
-                      }`}
-                    >
-                      {u.isBanned ? 'Pardon / Unban' : 'Suspend / Ban'}
-                    </button>
-                  </div>
-                ))}
-              </div>
+          {/* Reports first: they need action */}
+          <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-bold text-sm text-gray-800">Reports ({shownReports.length})</h3>
+              <label className="text-xs text-gray-600 flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} className="accent-red-600" />
+                Show resolved
+              </label>
             </div>
-
-            {/* BUSINESS DIRECTORY VERIFICATIONS */}
-            <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-              <h3 className="font-bold text-xs uppercase tracking-widest text-red-600 border-b border-gray-50 pb-2 flex items-center justify-between">
-                <span>Shops Verifications Desk</span>
-                <span className="text-gray-400 font-mono text-[10px]">({businesses.length})</span>
-              </h3>
-
-              <div className="space-y-3 max-h-[420px] overflow-y-auto">
-                {businesses.map((b) => (
-                  <div key={b.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3 text-xs">
-                    <div className="min-w-0 col-span-2">
-                      <p className="font-bold text-gray-800 truncate">{b.name}</p>
-                      <span className="text-[10px] text-gray-400 block font-semibold uppercase">{b.category}</span>
+            {shownReports.length === 0 ? (
+              <p className="text-sm text-gray-500 py-6 text-center">No reports to review.</p>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {shownReports.map((r) => (
+                  <div key={r.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2 text-sm">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-xs font-bold uppercase text-gray-500">{r.targetType}</span>
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded uppercase ${r.status === 'resolved' ? 'bg-gray-200 text-gray-600' : 'bg-red-100 text-red-700'}`}
+                      >
+                        {r.status}
+                      </span>
                     </div>
-
-                    <button
-                      onClick={() => handleVerifyBusiness(b.id)}
-                      className={`px-3 py-1.5 rounded-xl font-bold uppercase text-[9.5px] shrink-0 transition-all ${
-                        b.isVerified
-                          ? 'bg-amber-100 text-amber-800 border border-amber-250'
-                          : 'bg-teal-600 text-white hover:bg-teal-700'
-                      }`}
-                    >
-                      {b.isVerified ? 'Revoke Verify' : 'Verify Spot'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* CONTENT REPORTS INVESTIGATIVE TABLE */}
-            <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm space-y-4">
-              <h3 className="font-bold text-xs uppercase tracking-widest text-red-600 border-b border-gray-50 pb-2 flex items-center justify-between">
-                <span>Moderation Pending Reports</span>
-                <span className="text-gray-400 font-mono text-[10px]">({reports.length})</span>
-              </h3>
-
-              <div className="space-y-3 max-h-[420px] overflow-y-auto">
-                {reports.length === 0 ? (
-                  <p className="text-[11px] text-gray-400 py-12 text-center uppercase font-bold tracking-wider">Reports logs is clean.</p>
-                ) : (
-                  reports.map((rep) => (
-                    <div key={rep.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 space-y-2 text-xs">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-gray-450 font-bold uppercase">Target: {rep.targetType}</span>
-                        <span className={`px-1.5 py-0.5 text-[8.5px] font-bold rounded uppercase ${
-                          rep.status === 'resolved' ? 'bg-gray-200 text-gray-500' : 'bg-red-100 text-red-700 font-bold animate-pulse'
-                        }`}>{rep.status}</span>
-                      </div>
-                      <p className="font-medium text-gray-750">Reported Reason: &ldquo;{rep.reason}&rdquo;</p>
-                      <p className="text-[10px] text-gray-400 font-medium">Flagged by reporter: {rep.reporterName}</p>
-
-                      {rep.status !== 'resolved' && (
-                        <button
-                          onClick={() => handleResolveReport(rep.id)}
-                          className="w-full py-1.5 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold uppercase rounded-xl flex items-center justify-center gap-1.5"
-                        >
-                          <CheckSquare size={11} />
-                          <span>Resolve / Moderate</span>
+                    <p className="font-semibold text-gray-800">{r.targetName || 'Deleted content'}</p>
+                    {r.targetPreview && <p className="text-gray-600 bg-white border border-gray-100 rounded-xl p-2 break-words">“{r.targetPreview}”</p>}
+                    <p className="text-xs text-gray-600">
+                      <strong>Reason:</strong> {r.reason}
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Reported by {r.reporterName} · {timeAgo(r.createdAt)}
+                    </p>
+                    {r.status !== 'resolved' && (
+                      <div className="flex gap-2 pt-1">
+                        {r.targetExists && (
+                          <button onClick={() => removeContent(r)} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+                            <Trash2 size={12} /> {r.targetType === 'user' ? 'Ban user' : 'Remove content'}
+                          </button>
+                        )}
+                        <button onClick={() => act(() => api.resolveReport(r.id), 'Report dismissed.')} className="flex-1 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+                          <CheckSquare size={12} /> Dismiss
                         </button>
-                      )}
-                    </div>
-                  ))
-                )}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
+          </section>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-sm text-gray-800">Users ({users.length})</h3>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
+                <input
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Search users..."
+                  className="w-full text-sm rounded-xl border border-gray-200 pl-8 pr-3 py-2 outline-none focus:ring-1 focus:ring-red-500"
+                />
+              </div>
+              <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                {shownUsers.map((u) => (
+                  <div key={u.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-800 text-sm truncate">
+                        {u.name} {u.isAdmin && <span className="text-[11px] text-red-600 font-bold ml-1">ADMIN</span>}
+                      </p>
+                      <span className="text-xs text-gray-500 block truncate">@{u.username} · {u.email}</span>
+                    </div>
+                    {!u.isAdmin && u.id !== currentUser.id && (
+                      <button
+                        onClick={() => toggleBan(u)}
+                        className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 ${u.isBanned ? 'bg-emerald-100 text-emerald-800' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                      >
+                        {u.isBanned ? 'Unban' : 'Ban'}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
+              <h3 className="font-bold text-sm text-gray-800">Businesses ({businesses.length})</h3>
+              <div className="space-y-2 max-h-[470px] overflow-y-auto">
+                {sortedBusinesses.map((b) => (
+                  <div key={b.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-800 text-sm truncate">{b.name}</p>
+                      <span className="text-xs text-gray-500 block truncate">
+                        {b.category} · owner {b.ownerName}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => act(() => api.verifyBusiness(b.id), b.isVerified ? `${b.name} is hidden until verified again.` : `${b.name} is now verified.`)}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 ${b.isVerified ? 'bg-amber-100 text-amber-800' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
+                    >
+                      {b.isVerified ? 'Revoke' : 'Verify'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
         </>
       )}
