@@ -9,7 +9,7 @@ import { toast, confirmAction } from './Toaster';
 import { timeAgo } from '../utils/time';
 import { MediaInput } from './common/MediaInput';
 import { ReportDialog, ReportTarget } from './common/ReportDialog';
-import { Avatar, EmptyState, LoadMore, Spinner, distanceLabel, errorText } from './common/ui';
+import { Avatar, EmptyState, LoadMore, SafeImage, Spinner, distanceLabel, errorText } from './common/ui';
 import { Comment, MemberSummary, Post, Story, StoryGroup, User } from '../types';
 import {
   AlertTriangle,
@@ -881,7 +881,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                     {post.type === 'video' ? (
                       <video src={post.mediaUrls[0]} controls playsInline className="w-full max-h-[420px] bg-black" />
                     ) : (
-                      <img src={post.mediaUrls[0]} alt="" className="w-full max-h-[480px] object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                      <SafeImage src={post.mediaUrls[0]} alt="" className="w-full max-h-[480px] object-cover" />
                     )}
                   </div>
                 )}
@@ -899,7 +899,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                           (post.sharedPost.type === 'video' ? (
                             <video src={post.sharedPost.mediaUrls[0]} controls className="w-full max-h-64 rounded-xl bg-black" />
                           ) : (
-                            <img src={post.sharedPost.mediaUrls[0]} alt="" className="w-full max-h-64 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                            <SafeImage src={post.sharedPost.mediaUrls[0]} alt="" className="w-full max-h-64 object-cover rounded-xl" />
                           ))}
                       </>
                     ) : (

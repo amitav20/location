@@ -8,7 +8,7 @@ import { api } from '../api';
 import { toast, confirmAction } from './Toaster';
 import { formatListTime, formatMessageTime } from '../utils/time';
 import { ReportDialog } from './common/ReportDialog';
-import { Avatar, LoadMore, Spinner, distanceLabel, errorText } from './common/ui';
+import { Avatar, LoadMore, SafeImage, Spinner, distanceLabel, errorText } from './common/ui';
 import { ChatGroup, Message, User } from '../types';
 import {
   AlertTriangle,
@@ -442,7 +442,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                             <div className={`${m.content ? 'mt-2' : ''} rounded-xl overflow-hidden max-w-[240px]`}>
                               {m.mediaType === 'image' && (
                                 <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer">
-                                  <img src={m.mediaUrl} alt="Attachment" className="w-full h-auto object-cover" referrerPolicy="no-referrer" />
+                                  <SafeImage src={m.mediaUrl} alt="Attachment" className="w-full h-auto object-cover" />
                                 </a>
                               )}
                               {m.mediaType === 'video' && <video src={m.mediaUrl} controls playsInline className="w-full bg-black" />}

@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { MemberSummary, User } from '../types';
 import { toast, confirmAction } from './Toaster';
-import { Avatar, FieldError, errorText } from './common/ui';
+import { Avatar, FieldError, Spinner, errorText } from './common/ui';
 import { Ban, KeyRound, Settings, Trash2, UserCog } from 'lucide-react';
 
 interface SettingsPanelProps {
@@ -38,13 +38,26 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
 
   // Blocked people
   const [blocked, setBlocked] = useState<MemberSummary[]>([]);
+  const [isLoadingBlocked, setIsLoadingBlocked] = useState(true);
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
 
   // Delete account
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   useEffect(() => {
-    api.getBlockedUsers().then(setBlocked).catch(console.error);
+    setName(currentUser.name);
+    setEmail(currentUser.email || '');
+    setMobile(currentUser.mobile || '');
+  }, [currentUser]);
+
+  useEffect(() => {
+    setIsLoadingBlocked(true);
+    api.getBlockedUsers()
+      .then(setBlocked)
+      .catch(console.error)
+      .finally(() => setIsLoadingBlocked(false));
   }, []);
 
   const saveAccount = async (e: React.FormEvent) => {
@@ -94,12 +107,20 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
   };
 
   const unblock = async (user: MemberSummary) => {
+    const ok = await confirmAction(
+      `Unblock ${user.name} (@${user.username})? They will be able to see your posts and send messages again.`,
+      'Unblock user'
+    );
+    if (!ok) return;
+    setUnblockingId(user.id);
     try {
       await api.unblockUser(user.id);
       setBlocked((list) => list.filter((u) => u.id !== user.id));
       toast.success(`${user.name} was unblocked.`);
     } catch (err) {
       toast.error(errorText(err, 'Could not unblock user.'));
+    } finally {
+      setUnblockingId(null);
     }
   };
 
@@ -111,6 +132,7 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
       'Delete account'
     );
     if (!ok) return;
+    setIsDeletingAccount(true);
     try {
       await api.deleteAccount(deletePassword);
       toast.success('Your account was deleted.');
@@ -119,6 +141,8 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
       const msg = errorText(err, 'Could not delete account.');
       setDeleteError(msg);
       toast.error(msg);
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -189,7 +213,9 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
         <h3 className="font-bold text-gray-800 flex items-center gap-2">
           <Ban size={18} className="text-teal-600" /> Blocked people
         </h3>
-        {blocked.length === 0 ? (
+        {isLoadingBlocked ? (
+          <Spinner label="Loading blocked users..." />
+        ) : blocked.length === 0 ? (
           <p className="text-sm text-gray-500">You haven't blocked anyone.</p>
         ) : (
           <ul className="divide-y divide-gray-100">
@@ -200,8 +226,12 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
                   <span className="text-sm font-semibold text-gray-800 block truncate">{u.name}</span>
                   <span className="text-xs text-gray-500">@{u.username}</span>
                 </span>
-                <button onClick={() => unblock(u)} className="px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-700">
-                  Unblock
+                <button
+                  onClick={() => unblock(u)}
+                  disabled={unblockingId === u.id}
+                  className="px-3 py-1.5 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-50 text-xs font-semibold text-gray-700"
+                >
+                  {unblockingId === u.id ? 'Unblocking...' : 'Unblock'}
                 </button>
               </li>
             ))}
@@ -224,9 +254,14 @@ export function SettingsPanel({ currentUser, onUserUpdated, onAccountDeleted, on
             autoComplete="current-password"
             className={`${inputClass} sm:max-w-xs`}
             required
+            disabled={isDeletingAccount}
           />
-          <button type="submit" className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold">
-            Delete my account
+          <button
+            type="submit"
+            disabled={isDeletingAccount}
+            className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white text-sm font-semibold"
+          >
+            {isDeletingAccount ? 'Deleting account...' : 'Delete my account'}
           </button>
         </div>
       </form>

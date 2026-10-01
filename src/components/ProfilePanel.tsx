@@ -289,7 +289,7 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                   {post.type === 'video' ? (
                     <video src={post.mediaUrls[0]} controls className="w-full max-h-[360px] object-cover" />
                   ) : (
-                    <img src={post.mediaUrls[0]} alt="" className="w-full max-h-[420px] object-cover" referrerPolicy="no-referrer" />
+                    <SafeImage src={post.mediaUrls[0]} alt="" className="w-full max-h-[420px] object-cover" />
                   )}
                 </div>
               )}
