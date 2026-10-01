@@ -40,6 +40,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
   const [threads, setThreads] = useState<ChatGroup[]>([]);
   const [threadsLoaded, setThreadsLoaded] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId || null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
@@ -76,18 +77,6 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     }
   };
 
-  const fetchInitialMessages = async (threadId: string) => {
-    try {
-      const page = await api.getMessages(threadId);
-      setMessages(page.items);
-      setOlderCursor(page.next);
-      api.markThreadRead(threadId).catch(() => undefined);
-      fetchThreads();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   // Poll for newest messages and merge without disrupting scroll
   const pollNewMessages = async (threadId: string) => {
     try {
@@ -104,6 +93,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
       });
       if (hasNew) {
         api.markThreadRead(threadId).catch(() => undefined);
+        fetchThreads();
       }
     } catch (err) {
       console.error(err);
@@ -137,6 +127,12 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
   };
 
   useEffect(() => {
+    if (initialThreadId) {
+      setActiveThreadId(initialThreadId);
+    }
+  }, [initialThreadId]);
+
+  useEffect(() => {
     fetchThreads();
     const interval = setInterval(fetchThreads, POLL_MS * 2);
     return () => clearInterval(interval);
@@ -144,16 +140,38 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
 
   useEffect(() => {
     if (!activeThreadId) return;
+    let cancelled = false;
     setMessages([]);
     setOlderCursor(null);
     lastMessageIdRef.current = null;
     setShowMembers(false);
+    setIsLoadingMessages(true);
 
-    fetchInitialMessages(activeThreadId);
+    api.getMessages(activeThreadId)
+      .then((page) => {
+        if (cancelled) return;
+        setMessages(page.items);
+        setOlderCursor(page.next);
+        api.markThreadRead(activeThreadId).catch(() => undefined);
+        fetchThreads();
+      })
+      .catch((err) => {
+        if (!cancelled) console.error(err);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingMessages(false);
+      });
+
     triggerNotificationRefresh();
 
-    const interval = setInterval(() => pollNewMessages(activeThreadId), POLL_MS);
-    return () => clearInterval(interval);
+    const interval = setInterval(() => {
+      if (!cancelled) pollNewMessages(activeThreadId);
+    }, POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [activeThreadId]);
 
   // Scroll down when a new message arrives, unless the user scrolled up
@@ -199,15 +217,16 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    let uploaded;
+    setIsSending(true);
     try {
-      uploaded = await api.uploadFile(file);
+      const uploaded = await api.uploadFile(file);
+      if (await send(typedMessage, uploaded.url)) {
+        setTypedMessage('');
+      }
     } catch (err) {
       toast.error(errorText(err, 'Could not upload the file.'));
-      return;
-    }
-    if (await send(typedMessage, uploaded.url)) {
-      setTypedMessage('');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -230,11 +249,14 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
         setIsRecording(false);
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType.split(';')[0] || 'audio/webm' });
         if (blob.size === 0) return;
+        setIsSending(true);
         try {
           const uploaded = await api.uploadFile(blob);
           await send('', uploaded.url);
         } catch (err) {
           toast.error(errorText(err, 'Could not upload the voice note.'));
+        } finally {
+          setIsSending(false);
         }
       };
       recorderRef.current = recorder;
@@ -410,7 +432,11 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                 </div>
               )}
 
-              {messages.length === 0 ? (
+              {isLoadingMessages ? (
+                <div className="py-12 flex justify-center">
+                  <Spinner label="Loading conversation..." />
+                </div>
+              ) : messages.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-12">No messages yet. Say hello!</p>
               ) : (
                 messages.map((m) => {
@@ -514,6 +540,10 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
               </button>
             </form>
           </>
+        ) : !threadsLoaded && activeThreadId ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Spinner label="Opening chat..." />
+          </div>
         ) : pendingInitial ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-6 space-y-2">
             <p className="text-sm text-gray-600">This conversation is no longer available.</p>
