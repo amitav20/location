@@ -4,19 +4,22 @@
  */
 
 import React, { useRef, useState } from 'react';
-import { Upload, X } from 'lucide-react';
-import { api, UploadResult } from '../../api';
+import { ImagePlus, Upload, X } from 'lucide-react';
+import { api, MediaKind, UploadResult } from '../../api';
 import { toast } from '../Toaster';
-
-type MediaKind = 'image' | 'video' | 'audio';
 
 interface MediaInputProps {
   value: string;
   onChange: (url: string, kind?: MediaKind) => void;
   /** Which file types the picker offers */
   accept?: MediaKind[];
+  /**
+   * Also allow pasting a link. Only profile photos and covers accept links; posts, stories, events,
+   * shops and products need a file uploaded to our server.
+   */
+  allowLinks?: boolean;
   placeholder?: string;
-  /** Tailwind classes for the text input so it matches the surrounding form */
+  /** Tailwind classes for the link input so it matches the surrounding form */
   inputClassName?: string;
   showPreview?: boolean;
 }
@@ -27,12 +30,15 @@ const ACCEPT_ATTR: Record<MediaKind, string> = {
   audio: 'audio/*'
 };
 
-/** Paste a link or upload a file from the device (#28). */
+const LABEL: Record<MediaKind, string> = { image: 'photo', video: 'video', audio: 'audio file' };
+
+/** Upload a file from the device (and, where allowed, paste a link instead). */
 export function MediaInput({
   value,
   onChange,
   accept = ['image'],
-  placeholder = 'Paste a link or upload a file',
+  allowLinks = false,
+  placeholder = 'Paste an image link',
   inputClassName = 'w-full text-xs rounded-xl border border-gray-200 p-2.5 outline-none bg-gray-50 focus:bg-white focus:ring-1 focus:ring-teal-500',
   showPreview = true
 }: MediaInputProps) {
@@ -57,44 +63,41 @@ export function MediaInput({
   };
 
   const looksLikeVideo = kind === 'video' || /\.(mp4|webm|mov)(\?|$)/i.test(value);
+  const what = accept.map((k) => LABEL[k]).join(' or ');
 
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => {
-            setKind(undefined);
-            onChange(e.target.value);
-          }}
-          placeholder={placeholder}
-          className={`flex-1 min-w-0 ${inputClassName}`}
-        />
+        {allowLinks ? (
+          <input
+            type="url"
+            value={value}
+            onChange={(e) => {
+              setKind(undefined);
+              onChange(e.target.value);
+            }}
+            placeholder={placeholder}
+            className={`flex-1 min-w-0 ${inputClassName}`}
+          />
+        ) : null}
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={isUploading}
-          className="shrink-0 px-3 rounded-xl bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white text-xs font-semibold flex items-center gap-1.5"
+          className={`${allowLinks ? 'shrink-0 px-3' : 'flex-1 py-2.5'} rounded-xl bg-gray-900 hover:bg-gray-800 disabled:opacity-60 text-white text-xs font-semibold flex items-center justify-center gap-1.5`}
         >
-          <Upload size={14} />
-          {isUploading ? 'Uploading...' : 'Upload'}
+          {allowLinks ? <Upload size={14} /> : <ImagePlus size={15} />}
+          {isUploading ? 'Uploading...' : allowLinks ? 'Upload' : value ? `Change ${what}` : `Upload a ${what}`}
         </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept={accept.map((k) => ACCEPT_ATTR[k]).join(',')}
-          onChange={handleFile}
-          className="hidden"
-        />
+        <input ref={fileRef} type="file" accept={accept.map((k) => ACCEPT_ATTR[k]).join(',')} onChange={handleFile} className="hidden" />
       </div>
 
       {showPreview && value && accept.some((k) => k !== 'audio') && (
         <div className="relative inline-block">
           {looksLikeVideo ? (
-            <video src={value} className="h-20 rounded-xl bg-black" muted />
+            <video src={value} className="h-24 rounded-xl bg-black" muted controls />
           ) : (
-            <img src={value} alt="" className="h-20 rounded-xl object-cover bg-gray-100" referrerPolicy="no-referrer" />
+            <img src={value} alt="" className="h-24 rounded-xl object-cover bg-gray-100" referrerPolicy="no-referrer" />
           )}
           <button
             type="button"

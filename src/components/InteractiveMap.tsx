@@ -10,6 +10,7 @@ import { api } from '../api';
 import { toast } from './Toaster';
 import { User } from '../types';
 import { getCurrentPlace } from '../utils/geolocation';
+import { distanceLabel } from './common/ui';
 import { Calendar, Compass, Crosshair, MapPin, Navigation, Store, Users, X } from 'lucide-react';
 
 type PinType = 'me' | 'user' | 'business' | 'event';
@@ -86,20 +87,33 @@ export function InteractiveMap({ currentUser, onRelocate, setAppView }: Interact
       if (cancelled) return;
       const items: MapItem[] = [];
       if (people.status === 'fulfilled') {
-        people.value.forEach((u: any) =>
-          items.push({ id: u.id, name: u.name, type: 'user', latitude: u.location.latitude, longitude: u.location.longitude, distanceKm: u.distanceKm, details: u.profession || 'Neighbor' })
-        );
+        // Other people's positions are rounded to about 1 km by the API, for privacy
+        people.value.items
+          .filter((u) => Number.isFinite(u.location.latitude) && Number.isFinite(u.location.longitude))
+          .forEach((u) =>
+            items.push({ id: u.id, name: u.name, type: 'user', latitude: u.location.latitude, longitude: u.location.longitude, distanceKm: u.distanceKm, details: u.profession || 'Neighbor' })
+          );
       }
       if (shops.status === 'fulfilled') {
-        shops.value.forEach((b: any) =>
-          items.push({ id: b.id, name: b.name, type: 'business', latitude: b.latitude, longitude: b.longitude, distanceKm: b.distanceKm, category: b.category, details: b.address })
+        shops.value.forEach((b) =>
+          items.push({ id: b.slug, name: b.name, type: 'business', latitude: b.latitude, longitude: b.longitude, distanceKm: b.distanceKm, category: b.category, details: b.address })
         );
       }
       if (events.status === 'fulfilled') {
-        events.value.forEach((e: any) =>
-          items.push({ id: e.id, name: e.name, type: 'event', latitude: e.latitude, longitude: e.longitude, distanceKm: e.distanceKm, details: `${e.date} · ${e.time}` })
+        events.value.forEach((e) =>
+          items.push({
+            id: e.id,
+            name: e.name,
+            type: 'event',
+            latitude: e.latitude,
+            longitude: e.longitude,
+            distanceKm: e.distanceKm,
+            details: new Date(e.startsAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          })
         );
       }
+      const failed = [people, shops, events].filter((r) => r.status === 'rejected').length;
+      if (failed) toast.error('Some places could not be loaded. Try again in a moment.');
       setMapItems(items);
     })();
     return () => {
@@ -248,7 +262,8 @@ export function InteractiveMap({ currentUser, onRelocate, setAppView }: Interact
               </p>
               {selectedPin.distanceKm !== undefined && (
                 <p className="text-xs text-teal-700 font-semibold flex items-center gap-1 mt-0.5">
-                  <Navigation size={11} /> {selectedPin.distanceKm.toFixed(1)} km away
+                  <Navigation size={11} /> {selectedPin.type === 'user' ? 'About ' : ''}
+                  {distanceLabel(selectedPin.distanceKm)} away
                 </p>
               )}
             </div>

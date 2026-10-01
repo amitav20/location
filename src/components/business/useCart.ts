@@ -3,96 +3,114 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useState } from 'react';
-import { CartItem, Product } from '../../types';
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '../../api';
+import { Cart, CartLine, Product } from '../../types';
+import { toast } from '../Toaster';
 
-export interface AppliedPromo {
-  code: string;
-  discountPercent: number;
-  businessId: string | null; // null = platform-wide code
-}
+export function useCart() {
+  const [cart, setCart] = useState<Cart | null>(null);
+  const [promoCode, setPromoCode] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-function readStoredCart(key: string): { items: CartItem[]; promo: AppliedPromo | null } {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
-    return {
-      items: Array.isArray(parsed?.items) ? parsed.items : [],
-      promo: parsed?.promo || null
-    };
-  } catch {
-    return { items: [], promo: null };
-  }
-}
-
-// Shopping bag + applied coupon, persisted per user so it survives tab switches and reloads
-export function useCart(userId: string | undefined) {
-  const storageKey = `geoconnect_cart_${userId || 'guest'}`;
-  const [cart, setCart] = useState<CartItem[]>(() => readStoredCart(storageKey).items);
-  const [appliedPromo, setAppliedPromo] = useState<AppliedPromo | null>(() => readStoredCart(storageKey).promo);
+  const fetchCart = useCallback(async (code?: string) => {
+    try {
+      const data = await api.getCart(code !== undefined ? code : promoCode);
+      setCart(data);
+      return data;
+    } catch (err) {
+      console.error(err);
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [promoCode]);
 
   useEffect(() => {
+    fetchCart();
+  }, [fetchCart]);
+
+  const addToCart = async (product: Product, qty = 1): Promise<boolean> => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ items: cart, promo: appliedPromo }));
-    } catch {
-      // Storage unavailable (private mode etc.) - cart just won't persist
+      const currentQty = cart?.shops.flatMap((s) => s.items).find((i) => i.product.id === product.id)?.quantity || 0;
+      const updated = await api.setCartQuantity(product.id, currentQty + qty, promoCode);
+      setCart(updated);
+      toast.success(`${product.name} added to your bag.`);
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Could not add to bag.');
+      return false;
     }
-  }, [cart, appliedPromo, storageKey]);
-
-  /** Adds one more of a product; returns false if that would exceed the available stock. */
-  const addToCart = (product: Product): boolean => {
-    const inCart = cart.find((i) => i.productId === product.id)?.quantity || 0;
-    if (inCart + 1 > Math.min(99, product.stock)) return false;
-    setCart((prev) =>
-      prev.some((i) => i.productId === product.id)
-        ? prev.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1, product } : i))
-        : [...prev, { productId: product.id, quantity: 1, product }]
-    );
-    return true;
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart((prev) => prev.filter((i) => i.productId !== productId));
+  const setQuantity = async (productId: string, quantity: number) => {
+    try {
+      const updated = await api.setCartQuantity(productId, quantity, promoCode);
+      setCart(updated);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not update quantity.');
+    }
   };
 
-  /** Sets a line's quantity (1..stock, max 99); 0 removes it. */
-  const setQuantity = (productId: string, quantity: number) => {
-    setCart((prev) =>
-      prev
-        .map((i) => {
-          if (i.productId !== productId) return i;
-          const max = Math.min(99, i.product?.stock ?? 99);
-          return { ...i, quantity: Math.max(0, Math.min(quantity, max)) };
-        })
-        .filter((i) => i.quantity > 0)
-    );
+  const removeFromCart = async (productId: string) => {
+    await setQuantity(productId, 0);
   };
 
-  const clearCart = () => {
-    setCart([]);
-    setAppliedPromo(null);
+  const clearCart = async () => {
+    try {
+      const updated = await api.clearCart();
+      setCart(updated);
+      setPromoCode('');
+    } catch (err: any) {
+      toast.error(err.message || 'Could not clear cart.');
+    }
   };
 
-  const lineTotal = (i: CartItem) => (i.product?.price || 0) * i.quantity;
-  const subtotal = cart.reduce((sum, i) => sum + lineTotal(i), 0);
-  const discountAmount = appliedPromo
-    ? cart
-        .filter((i) => appliedPromo.businessId === null || i.product?.businessId === appliedPromo.businessId)
-        .reduce((sum, i) => sum + lineTotal(i), 0) *
-      (appliedPromo.discountPercent / 100)
-    : 0;
+  const applyPromo = async (code: string): Promise<boolean> => {
+    try {
+      const updated = await api.getCart(code.trim());
+      setCart(updated);
+      if (updated.promo && updated.promo.valid) {
+        setPromoCode(code.trim());
+        toast.success(updated.promo.message || 'Coupon applied!');
+        return true;
+      } else {
+        toast.error(updated.promo?.message || 'Invalid coupon code.');
+        return false;
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Invalid coupon code.');
+      return false;
+    }
+  };
+
+  const removePromo = async () => {
+    setPromoCode('');
+    await fetchCart('');
+  };
+
+  const cartItems: CartLine[] = cart ? cart.shops.flatMap((s) => s.items) : [];
 
   return {
     cart,
+    cartItems,
+    shops: cart?.shops || [],
+    itemCount: cart?.itemsCount || 0,
+    subtotal: cart?.subtotal || 0,
+    discountAmount: cart?.discount || 0,
+    total: cart?.total || 0,
+    canCheckout: cart?.canCheckout ?? false,
+    promo: cart?.promo || null,
+    promoCode,
+    setPromoCode,
+    applyPromo,
+    removePromo,
     addToCart,
-    removeFromCart,
     setQuantity,
+    removeFromCart,
     clearCart,
-    appliedPromo,
-    setAppliedPromo,
-    subtotal,
-    discountAmount,
-    total: subtotal - discountAmount,
-    itemCount: cart.reduce((n, i) => n + i.quantity, 0)
+    refresh: () => fetchCart(),
+    isLoading
   };
 }
 

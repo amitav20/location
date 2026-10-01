@@ -4,17 +4,27 @@
  */
 
 import React, { useState } from 'react';
-import { api, Place } from '../api';
+import { api, ApiError, Place } from '../api';
 import { User } from '../types';
 import { toast } from './Toaster';
 import { LocationSearch } from './common/LocationSearch';
-import { Compass, MapPin, MessageSquare, Shield, Store } from 'lucide-react';
+import { Avatar, FieldError, errorText } from './common/ui';
+import { ArrowLeft, Compass, MapPin, MessageSquare, Shield, Store } from 'lucide-react';
 
 interface AuthScreenProps {
   onSignedIn: (user: User) => void;
 }
 
+type Mode = 'login' | 'register' | 'forgot' | 'reset';
+
 const DEMO_PASSWORD = 'password';
+
+const DEMO_ACCOUNTS = [
+  { username: 'sarah_j', name: 'Sarah', note: 'Friends, chats, events', photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&h=80&fit=crop' },
+  { username: 'marcus_b', name: 'Marcus', note: 'Owns a café shop', photo: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=80&h=80&fit=crop' },
+  { username: 'alex_rivera', name: 'Alex', note: 'Has an order', photo: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&h=80&fit=crop' },
+  { username: 'admin', name: 'Admin', note: 'Moderation', photo: '' }
+];
 
 const AVATARS = [
   { label: 'Creative', url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150' },
@@ -31,15 +41,27 @@ const FEATURES = [
 ];
 
 const inputClass =
-  'w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold';
+  'w-full text-xs rounded-xl border border-slate-800 bg-slate-900/60 p-2.5 outline-none text-white focus:ring-1 focus:ring-teal-500 font-semibold placeholder-slate-500';
 const labelClass = 'text-xs text-slate-400 font-extrabold uppercase tracking-wider block mb-1';
+const primaryButton =
+  'w-full py-3 bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-900/30';
 
-// Sign in / sign up page shown when nobody is logged in
+/** The page opened from a password-reset email: /reset-password?token=...&email=... */
+function readResetLink(): { token: string; email: string } | null {
+  if (window.location.pathname !== '/reset-password') return null;
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('token');
+  return token ? { token, email: params.get('email') || '' } : null;
+}
+
+// Sign in / sign up / forgot password, shown when nobody is signed in
 export function AuthScreen({ onSignedIn }: AuthScreenProps) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const resetLink = readResetLink();
+  const [mode, setMode] = useState<Mode>(resetLink ? 'reset' : 'login');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const [username, setUsername] = useState('');
+  const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
 
   const [regName, setRegName] = useState('');
@@ -48,59 +70,87 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
   const [regPassword, setRegPassword] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regDob, setRegDob] = useState('');
-  const [regGender, setRegGender] = useState<'Male' | 'Female' | 'Other'>('Other');
+  const [regGender, setRegGender] = useState<'male' | 'female' | 'other' | ''>('');
   const [regPhoto, setRegPhoto] = useState('');
   const [startPlace, setStartPlace] = useState<Place>({
-    name: 'New York',
-    displayName: 'New York, United States',
-    latitude: 40.7128,
-    longitude: -74.006,
-    city: 'New York',
-    state: 'New York',
+    name: 'San Francisco',
+    displayName: 'San Francisco, California, United States',
+    latitude: 37.7749,
+    longitude: -122.4194,
+    city: 'San Francisco',
+    state: 'California',
     country: 'United States'
   });
 
-  const signIn = async (user: string, pass: string) => {
+  const [resetEmail, setResetEmail] = useState(resetLink?.email || '');
+  const [newPassword, setNewPassword] = useState('');
+  const [forgotSent, setForgotSent] = useState('');
+
+  const switchMode = (m: Mode) => {
+    setErrors({});
+    setForgotSent('');
+    setMode(m);
+  };
+
+  /** Runs a form action; validation errors from the API are shown under their fields. */
+  const submit = async (action: () => Promise<void>, fallback: string) => {
     setIsSubmitting(true);
+    setErrors({});
     try {
-      const data = await api.login(user, pass);
-      onSignedIn(data.user);
+      await action();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Sign in failed.');
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length) setErrors(err.fieldErrors);
+      toast.error(errorText(err, fallback));
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const signIn = (user: string, pass: string) =>
+    submit(async () => {
+      onSignedIn(await api.login(user, pass));
+    }, 'Sign in failed.');
+
+  const handleRegister = (e: React.FormEvent) => {
     e.preventDefault();
-    if (regPassword.length < 8) {
-      toast.error('Password must be at least 8 characters.');
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      const data = await api.register({
-        name: regName,
-        username: regUsername,
-        email: regEmail,
-        password: regPassword,
-        mobile: regPhone,
-        dob: regDob || undefined,
-        gender: regGender,
-        profilePhoto: regPhoto,
-        latitude: startPlace.latitude,
-        longitude: startPlace.longitude,
-        city: startPlace.city || startPlace.name,
-        state: startPlace.state,
-        country: startPlace.country
-      });
-      onSignedIn(data.user);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Sign up failed.');
-    } finally {
-      setIsSubmitting(false);
-    }
+    submit(async () => {
+      onSignedIn(
+        await api.register({
+          name: regName,
+          username: regUsername,
+          email: regEmail,
+          password: regPassword,
+          phone: regPhone,
+          dob: regDob,
+          gender: regGender,
+          avatar: regPhoto,
+          latitude: startPlace.latitude,
+          longitude: startPlace.longitude,
+          city: startPlace.city || startPlace.name,
+          state: startPlace.state,
+          country: startPlace.country
+        })
+      );
+    }, 'Sign up failed.');
+  };
+
+  const handleForgot = (e: React.FormEvent) => {
+    e.preventDefault();
+    submit(async () => {
+      setForgotSent(await api.forgotPassword(resetEmail));
+    }, 'Could not send the email.');
+  };
+
+  const handleReset = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetLink) return;
+    submit(async () => {
+      const message = await api.resetPassword(resetLink.token, resetEmail, newPassword);
+      toast.success(`${message} Please sign in.`);
+      window.history.replaceState(null, '', '/');
+      setPassword('');
+      switchMode('login');
+    }, 'Could not reset the password.');
   };
 
   return (
@@ -157,56 +207,56 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
         <div className="bg-slate-950/60 border border-slate-800/80 p-6 sm:p-10 rounded-3xl w-full max-w-md shadow-2xl space-y-6">
           <div>
             <h3 className="text-lg font-black uppercase tracking-widest font-display text-teal-400">
-              {mode === 'login' ? 'Welcome back' : 'Create your account'}
+              {{ login: 'Welcome back', register: 'Create your account', forgot: 'Forgot password', reset: 'Choose a new password' }[mode]}
             </h3>
             <p className="text-slate-400 text-xs font-medium mt-1">
-              {mode === 'login' ? 'Sign in to see what is happening near you.' : 'It only takes a minute.'}
+              {{
+                login: 'Sign in to see what is happening near you.',
+                register: 'It only takes a minute.',
+                forgot: "Enter your email and we'll send you a link to reset your password.",
+                reset: 'Enter your email and a new password.'
+              }[mode]}
             </p>
           </div>
 
-          <div className="bg-slate-900 p-1 rounded-2xl flex border border-slate-800/50">
-            {(['login', 'register'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-widest transition-all rounded-xl ${
-                  mode === m ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {m === 'login' ? 'Sign In' : 'Sign Up'}
-              </button>
-            ))}
-          </div>
+          {(mode === 'login' || mode === 'register') && (
+            <div className="bg-slate-900 p-1 rounded-2xl flex border border-slate-800/50">
+              {(['login', 'register'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => switchMode(m)}
+                  className={`flex-1 py-2 text-xs font-extrabold uppercase tracking-widest transition-all rounded-xl ${
+                    mode === m ? 'bg-teal-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {m === 'login' ? 'Sign In' : 'Sign Up'}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {mode === 'login' ? (
+          {mode === 'login' && (
             <>
               <div className="bg-slate-900/60 p-3 rounded-2xl border border-slate-800 space-y-2">
                 <span className="text-xs text-teal-400 font-extrabold uppercase tracking-wider block">Try a demo account:</span>
                 <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { username: 'sarah_j', name: 'Sarah J.', photo: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50' },
-                    { username: 'admin', name: 'Admin', photo: '' }
-                  ].map((demo) => (
+                  {DEMO_ACCOUNTS.map((demo) => (
                     <button
                       key={demo.username}
                       type="button"
                       disabled={isSubmitting}
                       onClick={() => {
-                        setUsername(demo.username);
+                        setLogin(demo.username);
                         setPassword(DEMO_PASSWORD);
                         signIn(demo.username, DEMO_PASSWORD);
                       }}
-                      className="p-2 bg-slate-950/80 border border-slate-800 hover:border-teal-500 rounded-xl text-xs text-slate-300 hover:text-white transition-all text-left flex items-center gap-2"
+                      className="p-2 bg-slate-950/80 border border-slate-800 hover:border-teal-500 disabled:opacity-60 rounded-xl text-xs text-slate-300 hover:text-white transition-all text-left flex items-center gap-2"
                     >
-                      {demo.photo ? (
-                        <img src={demo.photo} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
-                      ) : (
-                        <span className="w-6 h-6 rounded-full bg-teal-500/10 text-teal-400 shrink-0 flex items-center justify-center font-black text-[11px]">A</span>
-                      )}
+                      <Avatar src={demo.photo} name={demo.name} className="w-7 h-7 rounded-full" />
                       <span className="min-w-0">
                         <span className="font-bold block truncate">{demo.name}</span>
-                        <span className="text-[11px] text-slate-500 font-mono">{demo.username}</span>
+                        <span className="text-[11px] text-slate-500 block truncate">{demo.note}</span>
                       </span>
                     </button>
                   ))}
@@ -219,55 +269,65 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  signIn(username, password);
+                  signIn(login, password);
                 }}
                 className="space-y-4 text-xs"
               >
                 <div>
-                  <label className={labelClass}>Username</label>
-                  <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. sarah_j" autoComplete="username" className={`${inputClass} p-3`} required />
+                  <label className={labelClass} htmlFor="login">Email or username</label>
+                  <input id="login" type="text" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="e.g. sarah_j" autoComplete="username" className={`${inputClass} p-3`} required />
+                  <FieldError message={errors.login} />
                 </div>
                 <div>
-                  <label className={labelClass}>Password</label>
-                  <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" className={`${inputClass} p-3`} required />
+                  <div className="flex justify-between items-center">
+                    <label className={labelClass} htmlFor="password">Password</label>
+                    <button type="button" onClick={() => switchMode('forgot')} className="text-[11px] text-teal-400 hover:text-teal-300 font-bold mb-1">
+                      Forgot password?
+                    </button>
+                  </div>
+                  <input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="current-password" className={`${inputClass} p-3`} required />
+                  <FieldError message={errors.password} />
                 </div>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-3 bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-900/30"
-                >
+                <button type="submit" disabled={isSubmitting} className={primaryButton}>
                   {isSubmitting ? 'Signing in...' : 'Sign In'}
                 </button>
               </form>
             </>
-          ) : (
+          )}
+
+          {mode === 'register' && (
             <form onSubmit={handleRegister} className="space-y-3.5 text-xs text-slate-300">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className={labelClass}>Full Name</label>
-                  <input type="text" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="e.g. Jordan River" className={inputClass} maxLength={60} required />
+                  <label className={labelClass} htmlFor="reg-name">Full name</label>
+                  <input id="reg-name" type="text" value={regName} onChange={(e) => setRegName(e.target.value)} placeholder="e.g. Jordan River" className={inputClass} maxLength={60} required />
+                  <FieldError message={errors.name} />
                 </div>
                 <div>
-                  <label className={labelClass}>Username</label>
+                  <label className={labelClass} htmlFor="reg-username">Username</label>
                   <input
+                    id="reg-username"
                     type="text"
                     value={regUsername}
                     onChange={(e) => setRegUsername(e.target.value)}
                     placeholder="e.g. jordan_r"
-                    pattern="[A-Za-z0-9_.]{3,20}"
-                    title="3-20 letters, numbers, dots or underscores"
+                    pattern="[A-Za-z0-9_.]{3,30}"
+                    title="3-30 letters, numbers, dots or underscores"
                     autoComplete="username"
                     className={inputClass}
                     required
                   />
+                  <FieldError message={errors.username} />
                 </div>
                 <div>
-                  <label className={labelClass}>Email</label>
-                  <input type="email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="jordan@domain.com" autoComplete="email" className={inputClass} required />
+                  <label className={labelClass} htmlFor="reg-email">Email</label>
+                  <input id="reg-email" type="email" value={regEmail} onChange={(e) => setRegEmail(e.target.value)} placeholder="jordan@domain.com" autoComplete="email" className={inputClass} required />
+                  <FieldError message={errors.email} />
                 </div>
                 <div>
-                  <label className={labelClass}>Password</label>
+                  <label className={labelClass} htmlFor="reg-password">Password</label>
                   <input
+                    id="reg-password"
                     type="password"
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
@@ -277,34 +337,38 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
                     className={inputClass}
                     required
                   />
+                  <FieldError message={errors.password} />
                 </div>
                 <div>
-                  <label className={labelClass}>Mobile (optional)</label>
-                  <input type="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+1 555 123 4567" className={inputClass} maxLength={20} />
+                  <label className={labelClass} htmlFor="reg-phone">Mobile (optional)</label>
+                  <input id="reg-phone" type="tel" value={regPhone} onChange={(e) => setRegPhone(e.target.value)} placeholder="+1 555 123 4567" className={inputClass} maxLength={20} />
+                  <FieldError message={errors.phone} />
                 </div>
                 <div>
-                  <label className={labelClass}>Date of Birth (optional)</label>
-                  <input type="date" value={regDob} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setRegDob(e.target.value)} className={inputClass} />
+                  <label className={labelClass} htmlFor="reg-dob">Date of birth (optional)</label>
+                  <input id="reg-dob" type="date" value={regDob} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setRegDob(e.target.value)} className={inputClass} />
+                  <FieldError message={errors.date_of_birth} />
                 </div>
               </div>
 
               <div>
-                <label className={labelClass}>Gender</label>
-                <select value={regGender} onChange={(e) => setRegGender(e.target.value as 'Male' | 'Female' | 'Other')} className={inputClass}>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
-                  <option value="Other">Other / prefer not to say</option>
+                <label className={labelClass} htmlFor="reg-gender">Gender (optional)</label>
+                <select id="reg-gender" value={regGender} onChange={(e) => setRegGender(e.target.value as typeof regGender)} className={inputClass}>
+                  <option value="">Prefer not to say</option>
+                  <option value="female">Female</option>
+                  <option value="male">Male</option>
+                  <option value="other">Other</option>
                 </select>
               </div>
 
               <div>
-                <label className={labelClass}>Profile Photo</label>
+                <span className={labelClass}>Profile photo</span>
                 <div className="grid grid-cols-4 gap-2 mb-2">
                   {AVATARS.map((av) => (
                     <button
                       key={av.url}
                       type="button"
-                      onClick={() => setRegPhoto(av.url)}
+                      onClick={() => setRegPhoto(regPhoto === av.url ? '' : av.url)}
                       className={`p-1.5 rounded-xl border flex flex-col items-center gap-1 bg-slate-900/40 ${
                         regPhoto === av.url ? 'border-teal-400 bg-teal-950/20' : 'border-slate-800 hover:border-slate-600'
                       }`}
@@ -321,6 +385,7 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
                   placeholder="Or paste an image link (you can upload one after signing up)"
                   className={`${inputClass} font-mono text-[11px]`}
                 />
+                <FieldError message={errors.avatar} />
               </div>
 
               <div className="bg-teal-950/40 p-3 rounded-2xl border border-teal-900/50 space-y-2">
@@ -336,20 +401,74 @@ export function AuthScreen({ onSignedIn }: AuthScreenProps) {
                 <LocationSearch dark onSelect={setStartPlace} />
               </div>
 
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3 bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-teal-900/30"
-              >
+              <button type="submit" disabled={isSubmitting} className={primaryButton}>
                 {isSubmitting ? 'Creating account...' : 'Create Account'}
+              </button>
+            </form>
+          )}
+
+          {mode === 'forgot' && (
+            <form onSubmit={handleForgot} className="space-y-4 text-xs">
+              {forgotSent ? (
+                <p className="bg-teal-950/50 border border-teal-800/60 text-teal-200 rounded-xl p-3 leading-relaxed">{forgotSent}</p>
+              ) : (
+                <>
+                  <div>
+                    <label className={labelClass} htmlFor="forgot-email">Email</label>
+                    <input id="forgot-email" type="email" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} autoComplete="email" className={`${inputClass} p-3`} required />
+                    <FieldError message={errors.email} />
+                  </div>
+                  <button type="submit" disabled={isSubmitting} className={primaryButton}>
+                    {isSubmitting ? 'Sending...' : 'Send reset link'}
+                  </button>
+                </>
+              )}
+              <button type="button" onClick={() => switchMode('login')} className="text-teal-400 hover:text-teal-300 font-bold flex items-center gap-1">
+                <ArrowLeft size={13} /> Back to sign in
+              </button>
+            </form>
+          )}
+
+          {mode === 'reset' && (
+            <form onSubmit={handleReset} className="space-y-4 text-xs">
+              <div>
+                <label className={labelClass} htmlFor="reset-email">Email</label>
+                <input id="reset-email" type="email" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} autoComplete="email" className={`${inputClass} p-3`} required />
+                <FieldError message={errors.email} />
+              </div>
+              <div>
+                <label className={labelClass} htmlFor="reset-password">New password</label>
+                <input
+                  id="reset-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={8}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                  className={`${inputClass} p-3`}
+                  required
+                />
+                <FieldError message={errors.password} />
+              </div>
+              <button type="submit" disabled={isSubmitting} className={primaryButton}>
+                {isSubmitting ? 'Saving...' : 'Set new password'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  window.history.replaceState(null, '', '/');
+                  switchMode('login');
+                }}
+                className="text-teal-400 hover:text-teal-300 font-bold flex items-center gap-1"
+              >
+                <ArrowLeft size={13} /> Back to sign in
               </button>
             </form>
           )}
         </div>
 
-        <p className="mt-6 text-[11px] font-mono text-slate-500 text-center max-w-sm">
-          Your location is used to show people, shops and events near you.
-        </p>
+        <p className="mt-6 text-[11px] font-mono text-slate-500 text-center max-w-sm">Your location is used to show people, shops and events near you.</p>
       </div>
     </div>
   );

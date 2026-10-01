@@ -7,7 +7,8 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api';
 import { toast, confirmAction } from './Toaster';
 import { ReportDialog } from './common/ReportDialog';
-import { Post, SocialRelations, User } from '../types';
+import { Avatar, SafeImage, Spinner, distanceLabel, errorText } from './common/ui';
+import { ProfileData, User } from '../types';
 import { AlertTriangle, ArrowLeft, Ban, Briefcase, Check, Edit2, Globe, Heart, MapPin, MessageSquare, UserPlus } from 'lucide-react';
 
 interface ProfilePanelProps {
@@ -19,33 +20,19 @@ interface ProfilePanelProps {
   triggerNotificationRefresh: () => void;
 }
 
-interface ProfileData {
-  user: User;
-  distanceKm: number;
-  followersCount: number;
-  friendsCount: number;
-  posts: Post[];
-}
-
-const FALLBACK_AVATAR = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop';
-
 export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditProfile, triggerNotificationRefresh }: ProfilePanelProps) {
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [relations, setRelations] = useState<SocialRelations>({ friendRequests: [], following: [], blocked: [] });
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
   const [showReport, setShowReport] = useState<boolean>(false);
 
-  const isMe = userId === currentUser.id;
-
   const fetchProfile = async () => {
     setError('');
     try {
-      const [data, rel] = await Promise.all([api.getUserProfile(userId), api.getSocialRelations()]);
+      const data = await api.getUserProfile(userId);
       setProfile(data);
-      setRelations(rel);
-    } catch (err: any) {
-      setError(err.message || 'Could not load this profile.');
+    } catch (err) {
+      setError(errorText(err, 'Could not load this profile.'));
     } finally {
       setIsLoading(false);
     }
@@ -54,60 +41,48 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
   useEffect(() => {
     setIsLoading(true);
     fetchProfile();
-  }, [userId, currentUser]);
+  }, [userId, currentUser.id]);
 
-  const friendRequest = relations.friendRequests.find(
-    (r) =>
-      (r.senderId === currentUser.id && r.receiverId === userId) ||
-      (r.senderId === userId && r.receiverId === currentUser.id)
-  );
-  const isFriend = friendRequest?.status === 'accepted';
-  const isPendingOutgoing = friendRequest?.status === 'pending' && friendRequest.senderId === currentUser.id;
-  const isPendingIncoming = friendRequest?.status === 'pending' && friendRequest.receiverId === currentUser.id;
-  const isFollowing = relations.following.some((f) => f.followingId === userId && f.targetType === 'user');
-
-  const runAction = async (action: () => Promise<unknown>) => {
+  const runAction = async (action: () => Promise<unknown>, successMsg?: string) => {
     try {
       await action();
+      if (successMsg) toast.success(successMsg);
       await fetchProfile();
       triggerNotificationRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Action failed.');
+    } catch (err) {
+      toast.error(errorText(err, 'Action failed.'));
     }
   };
 
   const handleChat = async () => {
+    if (!profile) return;
     try {
-      const thread = await api.startPrivateChat(userId);
+      const thread = await api.startPrivateChat(profile.user.id);
       setAppView('chat', thread.id);
-    } catch (err: any) {
-      toast.error(err.message || 'Could not start chat.');
+    } catch (err) {
+      toast.error(errorText(err, 'Could not start chat.'));
     }
   };
 
   const handleBlock = async () => {
-    const name = profile?.user.name || 'this person';
+    if (!profile) return;
+    const name = profile.user.name || 'this person';
     const ok = await confirmAction(
       `Block ${name}? You won't see each other's posts, stories or profiles, and they can't message you. Any friendship or follow between you is removed.`,
       'Block'
     );
     if (!ok) return;
     try {
-      await api.blockUser(userId);
+      await api.blockUser(profile.user.id);
       toast.success(`${name} is blocked. You can unblock them in Settings.`);
       onBack();
-    } catch (err: any) {
-      toast.error(err.message || 'Could not block.');
+    } catch (err) {
+      toast.error(errorText(err, 'Could not block.'));
     }
   };
 
   if (isLoading) {
-    return (
-      <div className="text-center py-16">
-        <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-        <p className="text-sm text-gray-500">Loading profile...</p>
-      </div>
-    );
+    return <Spinner label="Loading profile..." tone="border-teal-500" />;
   }
 
   if (error || !profile) {
@@ -121,8 +96,15 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
     );
   }
 
-  const { user, distanceKm, followersCount, friendsCount, posts } = profile;
+  const { user, counts, relationship, posts } = profile;
+  const isMe = user.id === currentUser.id;
   const websiteHref = user.website ? (user.website.startsWith('http') ? user.website : `https://${user.website}`) : '';
+
+  const isFriend = !!relationship?.isFriend;
+  const friendship = relationship?.friendship;
+  const isPendingIncoming = friendship?.status === 'pending' && friendship.direction === 'incoming';
+  const isPendingOutgoing = friendship?.status === 'pending' && friendship.direction === 'outgoing';
+  const isFollowing = !!relationship?.isFollowing;
 
   return (
     <div className="space-y-6">
@@ -135,19 +117,18 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
 
       {/* Header card */}
       <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="h-36 sm:h-44 bg-gradient-to-r from-teal-500 to-sky-600">
+        <div className="h-36 sm:h-44 bg-gradient-to-r from-teal-500 to-sky-600 relative">
           {user.coverImage && (
-            <img src={user.coverImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            <SafeImage src={user.coverImage} alt="" className="w-full h-full object-cover" />
           )}
         </div>
 
         <div className="px-5 sm:px-6 pb-6">
           <div className="flex flex-col sm:flex-row sm:items-end gap-4 -mt-12">
-            <img
-              src={user.profilePhoto || FALLBACK_AVATAR}
-              alt={user.name}
-              className="w-24 h-24 rounded-3xl object-cover border-4 border-white bg-gray-100 shadow-md shrink-0"
-              referrerPolicy="no-referrer"
+            <Avatar
+              src={user.profilePhoto}
+              name={user.name}
+              className="w-24 h-24 rounded-3xl object-cover border-4 border-white shadow-md text-2xl"
             />
             <div className="flex-1 min-w-0 sm:pb-1">
               <h2 className="text-xl font-bold text-gray-900 truncate">{user.name}</h2>
@@ -176,16 +157,16 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                     <span className="px-4 py-2 rounded-xl bg-teal-50 text-teal-700 border border-teal-200 text-sm font-semibold flex items-center gap-1.5">
                       <Check size={15} /> Friends
                     </span>
-                  ) : isPendingIncoming ? (
+                  ) : isPendingIncoming && friendship ? (
                     <>
                       <button
-                        onClick={() => runAction(() => api.respondFriendRequest(friendRequest.id, 'accepted'))}
+                        onClick={() => runAction(() => api.respondFriendRequest(friendship.id, 'accepted'), `You and ${user.name} are now friends.`)}
                         className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold"
                       >
                         Accept request
                       </button>
                       <button
-                        onClick={() => runAction(() => api.respondFriendRequest(friendRequest.id, 'declined'))}
+                        onClick={() => runAction(() => api.respondFriendRequest(friendship.id, 'declined'))}
                         className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold"
                       >
                         Decline
@@ -193,11 +174,16 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                     </>
                   ) : (
                     <button
-                      onClick={() => runAction(() => api.sendFriendRequest(userId))}
-                      disabled={isPendingOutgoing}
-                      className="px-4 py-2 rounded-xl bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-200 text-sm font-semibold flex items-center gap-1.5"
+                      onClick={() => {
+                        if (isPendingOutgoing) {
+                          runAction(() => api.removeFriend(user.id), 'Request cancelled.');
+                        } else {
+                          runAction(() => api.sendFriendRequest(user.id), 'Friend request sent.');
+                        }
+                      }}
+                      className="px-4 py-2 rounded-xl bg-white border border-sky-200 text-sky-700 hover:bg-sky-50 text-sm font-semibold flex items-center gap-1.5"
                     >
-                      <UserPlus size={15} /> {isPendingOutgoing ? 'Request sent' : 'Add friend'}
+                      <UserPlus size={15} /> {isPendingOutgoing ? 'Cancel request' : 'Add friend'}
                     </button>
                   )}
 
@@ -216,7 +202,7 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                     <Ban size={15} /> <span className="hidden sm:inline">Block</span>
                   </button>
                   <button
-                    onClick={() => runAction(() => api.toggleFollow(userId, 'user'))}
+                    onClick={() => runAction(() => api.setFollowUser(user.id, !isFollowing), isFollowing ? 'Unfollowed.' : 'Following.')}
                     className={`px-4 py-2 rounded-xl text-sm font-semibold border ${
                       isFollowing
                         ? 'bg-rose-50 text-rose-600 border-rose-200'
@@ -243,7 +229,9 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
               <span className="flex items-center gap-1.5">
                 <MapPin size={15} className="text-teal-600" />
                 {[user.location?.city, user.location?.state].filter(Boolean).join(', ') || 'Unknown location'}
-                {!isMe && <span className="text-gray-400">· {distanceKm} km away</span>}
+                {!isMe && user.distanceKm !== undefined && (
+                  <span className="text-gray-400">· {distanceLabel(user.distanceKm)} away</span>
+                )}
               </span>
               {websiteHref && (
                 <a
@@ -268,9 +256,10 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
             )}
 
             <div className="flex gap-6 pt-2 text-sm">
-              <span><strong className="text-gray-900">{posts.length}</strong> <span className="text-gray-500">posts</span></span>
-              <span><strong className="text-gray-900">{friendsCount}</strong> <span className="text-gray-500">friends</span></span>
-              <span><strong className="text-gray-900">{followersCount}</strong> <span className="text-gray-500">followers</span></span>
+              <span><strong className="text-gray-900">{counts?.posts || posts.length}</strong> <span className="text-gray-500">posts</span></span>
+              <span><strong className="text-gray-900">{counts?.friends || 0}</strong> <span className="text-gray-500">friends</span></span>
+              <span><strong className="text-gray-900">{counts?.followers || 0}</strong> <span className="text-gray-500">followers</span></span>
+              <span><strong className="text-gray-900">{counts?.following || 0}</strong> <span className="text-gray-500">following</span></span>
             </div>
           </div>
         </div>
@@ -294,7 +283,7 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                   </span>
                 )}
               </div>
-              {post.content && <p className="text-sm text-gray-700 leading-relaxed break-words">{post.content}</p>}
+              {post.content && <p className="text-sm text-gray-700 leading-relaxed break-words whitespace-pre-line">{post.content}</p>}
               {post.mediaUrls && post.mediaUrls.length > 0 && (
                 <div className="rounded-2xl overflow-hidden bg-gray-50">
                   {post.type === 'video' ? (
@@ -309,15 +298,15 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
                   {post.pollOptions.map((opt) => (
                     <li key={opt.id} className="flex justify-between text-sm bg-gray-50 rounded-xl px-3 py-2">
                       <span className="text-gray-700">{opt.text}</span>
-                      <span className="text-gray-500">{opt.votes.length} votes</span>
+                      <span className="text-gray-500 font-semibold">{opt.percent}% ({opt.votes})</span>
                     </li>
                   ))}
                 </ul>
               )}
               <div className="flex gap-4 text-xs text-gray-500 pt-1">
-                <span className="flex items-center gap-1"><Heart size={13} /> {post.likes.length} likes</span>
-                <span className="flex items-center gap-1"><Heart size={13} className="fill-rose-400 stroke-rose-400" /> {post.loves.length} loves</span>
-                <button onClick={() => setAppView('feed', post.id)} className="flex items-center gap-1 hover:text-teal-700">
+                <span className="flex items-center gap-1"><Heart size={13} className="text-teal-600" /> {post.likesCount} likes</span>
+                <span className="flex items-center gap-1"><Heart size={13} className="fill-rose-400 stroke-rose-400" /> {post.lovesCount} loves</span>
+                <button onClick={() => setAppView('feed', post.id)} className="flex items-center gap-1 hover:text-teal-700 font-semibold">
                   <MessageSquare size={13} /> {post.commentCount || 0} comments
                 </button>
               </div>
@@ -326,7 +315,7 @@ export function ProfilePanel({ currentUser, userId, setAppView, onBack, onEditPr
         )}
       </div>
 
-      {showReport && <ReportDialog target={{ type: 'user', id: userId }} onClose={() => setShowReport(false)} />}
+      {showReport && <ReportDialog target={{ type: 'user', id: user.id }} onClose={() => setShowReport(false)} />}
     </div>
   );
 }

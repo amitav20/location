@@ -6,28 +6,33 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { toast, confirmAction } from './Toaster';
-import { ShopView } from './business/ShopView';
 import { BusinessDashboard } from './business/BusinessDashboard';
+import { ShopView } from './business/ShopView';
 import { useCart } from './business/useCart';
-import { BIZ_CATEGORIES } from './business/theme';
-import { formatOrderNumber } from './business/orders';
-import { Business, Order, Product, User } from '../types';
-import { Briefcase, CreditCard, MapPin, Minus, Plus, ShoppingBag, Star, Store, Trash2 } from 'lucide-react';
+import { Avatar, SafeImage, Spinner, distanceLabel, money, errorText } from './common/ui';
+import { Business, BusinessCategoryItem, Order, OrderStatus, Product, User } from '../types';
+import {
+  Briefcase,
+  Check,
+  CreditCard,
+  MapPin,
+  Minus,
+  Plus,
+  ShoppingBag,
+  Star,
+  Store,
+  Trash2
+} from 'lucide-react';
 
 interface BusinessPanelProps {
   currentUser: User;
   setAppView: (view: string, targetId?: string) => void;
   triggerNotificationRefresh: () => void;
-  /** 'orders', 'dashboard', or a shop id to open (from a notification or the map) */
+  shopToOpen?: string;
   initialTarget?: string;
 }
 
-type SubTab = 'directory' | 'marketplace' | 'cart' | 'dashboard';
-
-const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
-const money = (n: number) => `$${n.toFixed(2)}`;
-
-const STATUS_STYLES: Record<Order['status'], string> = {
+const STATUS_STYLES: Record<OrderStatus, string> = {
   pending: 'bg-amber-100 text-amber-700',
   processing: 'bg-sky-100 text-sky-700',
   shipped: 'bg-indigo-100 text-indigo-700',
@@ -35,42 +40,49 @@ const STATUS_STYLES: Record<Order['status'], string> = {
   cancelled: 'bg-gray-200 text-gray-600'
 };
 
-export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefresh, initialTarget }: BusinessPanelProps) {
-  const initialTab: SubTab = initialTarget === 'orders' ? 'cart' : initialTarget === 'dashboard' ? 'dashboard' : 'directory';
-  const shopToOpen = initialTarget && !['orders', 'dashboard'].includes(initialTarget) ? initialTarget : undefined;
+export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefresh, shopToOpen, initialTarget }: BusinessPanelProps) {
+  const targetShopId = shopToOpen || initialTarget;
+  const [activeSubTab, setActiveSubTab] = useState<'directory' | 'marketplace' | 'cart' | 'dashboard'>('directory');
 
-  const [activeSubTab, setActiveSubTab] = useState<SubTab>(initialTab);
+  // Categories
+  const [categories, setCategories] = useState<BusinessCategoryItem[]>([]);
 
   // Directory
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [range, setRange] = useState<string>(shopToOpen ? 'global' : '25');
+  const [selectedShop, setSelectedShop] = useState<Business | null>(null);
+  const [range, setRange] = useState<string>('25');
   const [category, setCategory] = useState<string>('');
   const [search, setSearch] = useState<string>('');
-  const [selectedShop, setSelectedShop] = useState<Business | null>(null);
   const [isLoadingShops, setIsLoadingShops] = useState(true);
 
   // Marketplace
-  const [marketplaceProducts, setMarketplaceProducts] = useState<(Product & { distanceKm?: number })[]>([]);
+  const [marketplaceProducts, setMarketplaceProducts] = useState<Product[]>([]);
   const [marketSearch, setMarketSearch] = useState<string>('');
   const [marketCategory, setMarketCategory] = useState<string>('');
   const [marketRange, setMarketRange] = useState<string>('50');
 
-  // Bag (persisted per user) + checkout
-  const bag = useCart(currentUser.id);
-  const { cart, removeFromCart, setQuantity, clearCart, appliedPromo, setAppliedPromo, discountAmount, total: cartTotal, itemCount } = bag;
-  const [checkoutAddress, setCheckoutAddress] = useState<string>('');
+  // Server-backed Bag & Checkout
+  const bag = useCart();
+  const { cartItems, removeFromCart, setQuantity, clearCart, promo, discountAmount, total: cartTotal, itemCount, canCheckout } = bag;
+  const [checkoutAddress, setCheckoutAddress] = useState<string>(
+    [currentUser.location?.city, currentUser.location?.state, currentUser.location?.country].filter(Boolean).join(', ')
+  );
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderMessage, setOrderMessage] = useState<string>('');
   const [orderError, setOrderError] = useState<string>('');
   const [isCheckingOut, setIsCheckingOut] = useState<boolean>(false);
+
+  useEffect(() => {
+    api.getCategories().then(setCategories).catch(console.error);
+  }, []);
 
   const fetchBusinesses = async () => {
     setIsLoadingShops(true);
     try {
       const data: Business[] = await api.getBusinesses({ range, category, search });
       setBusinesses(data);
-      if (shopToOpen && !selectedShop) {
-        const shop = data.find((b) => b.id === shopToOpen);
+      if (targetShopId && !selectedShop) {
+        const shop = data.find((b) => b.id === targetShopId || b.slug === targetShopId);
         if (shop) setSelectedShop(shop);
       }
     } catch (err) {
@@ -96,7 +108,6 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     }
   };
 
-  // Debounce text filters so we don't query on every keystroke
   useEffect(() => {
     if (activeSubTab !== 'directory') return;
     const t = window.setTimeout(fetchBusinesses, search ? 350 : 0);
@@ -114,10 +125,12 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   }, [activeSubTab]);
 
   const handleFollowShop = async (shopId: string) => {
+    const shop = businesses.find((b) => b.id === shopId) || selectedShop;
+    const isFollowing = shop?.isFollowing ?? false;
     try {
-      const res = await api.toggleFollow(shopId, 'business');
+      const res = await api.setFollowBusiness(shopId, !isFollowing);
       const patch = (b: Business) =>
-        b.id === shopId ? { ...b, isFollowing: res.following, followersCount: Math.max(0, (b.followersCount || 0) + (res.following ? 1 : -1)) } : b;
+        b.id === shopId ? { ...b, isFollowing: res.following, followersCount: res.followersCount } : b;
       setBusinesses((list) => list.map(patch));
       setSelectedShop((s) => (s ? patch(s) : s));
       toast.success(res.following ? "You'll get this shop's offers and updates." : 'Unfollowed.');
@@ -139,28 +152,28 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     }
   };
 
-  // Reload the directory after a review so the shop header shows the new average rating
   const refreshSelectedShop = async (shopId: string) => {
     try {
-      const updated: Business[] = await api.getBusinesses({ range: 'global' });
-      const found = updated.find((b) => b.id === shopId);
-      if (found) setSelectedShop(found);
+      const found = businesses.find((b) => b.id === shopId);
+      if (found) {
+        const updated = await api.getBusiness(found.slug);
+        setSelectedShop(updated);
+      }
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleAddToCart = (product: Product) => {
+  const handleAddToCart = async (product: Product) => {
     if (product.stock <= 0) {
       toast.error(`${product.name} is sold out.`);
       return;
     }
-    if (bag.addToCart(product)) toast.success(`${product.name} added to your bag.`);
-    else toast.error(`Only ${product.stock} of ${product.name} available.`);
+    await bag.addToCart(product);
   };
 
   const handleCheckout = async () => {
-    if (cart.length === 0 || isCheckingOut) return;
+    if (cartItems.length === 0 || isCheckingOut) return;
     setOrderError('');
     setOrderMessage('');
     if (checkoutAddress.trim().length < 5) {
@@ -169,11 +182,9 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
     }
     setIsCheckingOut(true);
     try {
-      const items = cart.map((i) => ({ productId: i.productId, quantity: i.quantity }));
-      await api.checkoutCart(items, checkoutAddress.trim(), appliedPromo?.code);
-      clearCart();
-      setCheckoutAddress('');
-      setOrderMessage('Order placed! The shop has been notified.');
+      const placedOrders = await api.checkout(checkoutAddress.trim(), '', promo?.code);
+      await clearCart();
+      setOrderMessage(`Order placed! ${placedOrders.length} order(s) created.`);
       setSelectedShop(null);
       setActiveSubTab('cart');
       fetchOrders();
@@ -186,7 +197,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   };
 
   const cancelOrder = async (o: Order) => {
-    if (!(await confirmAction(`Cancel your ${money(o.totalAmount)} order from ${o.businessName}?`, 'Cancel order'))) return;
+    if (!(await confirmAction(`Cancel order ${o.number} from ${o.businessName}?`, 'Cancel order'))) return;
     try {
       await api.cancelOrder(o.id);
       toast.success('Order cancelled.');
@@ -199,7 +210,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   const selectClass = 'bg-gray-50 border border-gray-200 rounded-2xl px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500 text-gray-700';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-left">
       <div className="bg-gradient-to-r from-teal-500 to-emerald-600 rounded-3xl p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold font-display flex items-center gap-2">
@@ -248,8 +259,8 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
             />
             <select value={category} onChange={(e) => setCategory(e.target.value)} className={`md:w-56 ${selectClass}`} aria-label="Category">
               <option value="">All categories</option>
-              {BIZ_CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.slug}>{c.name}</option>
               ))}
             </select>
             <select value={range} onChange={(e) => setRange(e.target.value)} className={`md:w-40 ${selectClass}`} aria-label="Distance">
@@ -261,11 +272,11 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
           </div>
 
           {isLoadingShops ? (
-            <div className="text-center py-12">
-              <div className="w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto" />
-            </div>
+            <Spinner label="Loading shops..." />
           ) : businesses.length === 0 ? (
-            <div className="text-center bg-white py-16 rounded-3xl border border-gray-200 text-gray-500 text-sm">No shops found nearby. Try a wider distance.</div>
+            <div className="text-center bg-white py-16 rounded-3xl border border-gray-200 text-gray-500 text-sm">
+              No shops found nearby. Try a wider distance.
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {businesses.map((biz) => (
@@ -275,8 +286,10 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                   className="bg-white rounded-3xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-md hover:ring-1 hover:ring-teal-100 transition-all flex flex-col text-left"
                 >
                   <div className="relative h-40 bg-gray-200 w-full">
-                    <img src={biz.coverImage} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
-                    <span className="absolute top-3 left-3 bg-white/90 px-2.5 py-1 rounded-xl text-xs font-bold text-gray-700 shadow-sm">{biz.category}</span>
+                    <SafeImage src={biz.coverImage} alt="" className="w-full h-full object-cover" />
+                    <span className="absolute top-3 left-3 bg-white/90 px-2.5 py-1 rounded-xl text-xs font-bold text-gray-700 shadow-sm">
+                      {biz.category}
+                    </span>
                     {biz.isVerified ? (
                       <span className="absolute top-3 right-3 bg-teal-500 text-white px-2 py-0.5 rounded-lg text-[11px] font-bold shadow-sm">Verified</span>
                     ) : (
@@ -291,12 +304,12 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                         {biz.averageRating ? biz.averageRating.toFixed(1) : 'New'}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{biz.description}</p>
+                    {biz.description && <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{biz.description}</p>}
                     <p className="flex items-center gap-1.5 text-xs text-gray-500 mt-auto pt-2">
                       <MapPin size={12} className="text-teal-600 shrink-0" /> <span className="truncate">{biz.address}</span>
                     </p>
                     <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500 font-semibold">
-                      <span className="text-teal-700">{biz.distanceKm} km away</span>
+                      <span className="text-teal-700">{distanceLabel(biz.distanceKm)}</span>
                       <span>
                         {biz.followersCount || 0} followers{biz.isFollowing ? ' · Following' : ''}
                       </span>
@@ -341,7 +354,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
             />
             <input
               type="text"
-              placeholder="Category (e.g. Food, Apparel)"
+              placeholder="Category (e.g. Coffee, Bakery)"
               value={marketCategory}
               onChange={(e) => setMarketCategory(e.target.value)}
               className="md:w-56 bg-gray-50 border border-gray-200 rounded-2xl px-3 py-2.5 text-sm text-gray-700 outline-none focus:ring-1 focus:ring-teal-500"
@@ -363,7 +376,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                 return (
                   <div key={p.id} className="bg-white rounded-2xl overflow-hidden border border-gray-200 shadow-sm flex flex-col">
                     <div className="h-40 bg-gray-100 relative">
-                      <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                      <SafeImage src={p.images[0]} alt={p.name} className="w-full h-full object-cover" />
                       <span className="absolute top-2 left-2 bg-teal-600 text-white text-[11px] font-bold px-1.5 py-0.5 rounded">{p.category}</span>
                       {soldOut && <span className="absolute inset-0 bg-white/60 flex items-center justify-center text-sm font-bold text-gray-700">Sold out</span>}
                     </div>
@@ -371,15 +384,15 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       <h4 className="font-bold text-gray-800 text-sm truncate" title={p.name}>{p.name}</h4>
                       <p className="text-xs text-gray-500 font-semibold truncate">
                         {p.businessName}
-                        {p.distanceKm !== undefined && ` · ${p.distanceKm} km`}
+                        {p.distanceKm !== undefined && ` · ${distanceLabel(p.distanceKm)}`}
                       </p>
-                      <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{p.description}</p>
+                      {p.description && <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">{p.description}</p>}
                       <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-auto">
                         <span className="text-sm font-bold text-teal-700">{money(p.price)}</span>
                         <button
                           onClick={() => handleAddToCart(p)}
                           disabled={soldOut}
-                          className="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-200 disabled:text-gray-500 text-white font-bold text-xs rounded-xl flex items-center gap-1"
+                          className="px-2.5 py-1.5 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-200 disabled:text-gray-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-2xs"
                         >
                           <Plus size={12} /> Add
                         </button>
@@ -399,47 +412,47 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
           <div className="lg:col-span-3 bg-white rounded-3xl p-5 border border-gray-200 shadow-sm space-y-4 h-fit">
             <h3 className="font-bold text-gray-800">Your bag</h3>
 
-            {cart.length === 0 ? (
+            {cartItems.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-8">Your bag is empty.</p>
             ) : (
               <div className="space-y-3">
-                {cart.map((item) => (
-                  <div key={item.productId} className="flex gap-3 bg-gray-50 p-3 rounded-2xl items-center border border-gray-100">
-                    <img src={item.product?.images[0]} alt="" className="w-12 h-12 rounded-xl object-cover bg-white" referrerPolicy="no-referrer" />
+                {cartItems.map((item) => (
+                  <div key={item.product.id} className="flex gap-3 bg-gray-50 p-3 rounded-2xl items-center border border-gray-100">
+                    <SafeImage src={item.product.images[0]} alt="" className="w-12 h-12 rounded-xl object-cover bg-white shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-sm text-gray-800 truncate">{item.product?.name}</h4>
-                      <span className="text-xs text-gray-500">{money(item.product?.price || 0)} each</span>
+                      <h4 className="font-semibold text-sm text-gray-800 truncate">{item.product.name}</h4>
+                      <span className="text-xs text-gray-500">{money(item.product.price)} each</span>
+                      {item.problem && (
+                        <p className="text-[11px] text-rose-500 font-bold">
+                          {item.problem === 'out_of_stock' ? 'Sold out' : item.problem === 'not_enough_stock' ? 'Not enough stock' : 'Unavailable'}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl">
-                      <button onClick={() => setQuantity(item.productId, item.quantity - 1)} className="p-1.5 text-gray-600 hover:text-teal-700" aria-label="Decrease quantity">
+                      <button onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="p-1.5 text-gray-600 hover:text-teal-700" aria-label="Decrease quantity">
                         <Minus size={14} />
                       </button>
                       <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
                       <button
-                        onClick={() => setQuantity(item.productId, item.quantity + 1)}
-                        disabled={item.quantity >= Math.min(99, item.product?.stock ?? 99)}
+                        onClick={() => setQuantity(item.product.id, item.quantity + 1)}
+                        disabled={item.quantity >= Math.min(99, item.product.stock)}
                         className="p-1.5 text-gray-600 hover:text-teal-700 disabled:opacity-30"
                         aria-label="Increase quantity"
                       >
                         <Plus size={14} />
                       </button>
                     </div>
-                    <span className="text-sm font-bold text-teal-700 w-16 text-right">{money((item.product?.price || 0) * item.quantity)}</span>
-                    <button onClick={() => removeFromCart(item.productId)} className="text-gray-400 hover:text-red-600 p-1" aria-label="Remove">
+                    <span className="text-sm font-bold text-teal-700 w-16 text-right">{money(item.lineTotal)}</span>
+                    <button onClick={() => removeFromCart(item.product.id)} className="text-gray-400 hover:text-red-600 p-1" aria-label="Remove">
                       <Trash2 size={15} />
                     </button>
                   </div>
                 ))}
 
                 <div className="border-t border-gray-100 pt-3 space-y-2">
-                  {appliedPromo && (
+                  {promo && (
                     <div className="flex justify-between items-center text-sm text-emerald-700 font-semibold">
-                      <span>
-                        Coupon {appliedPromo.code} (-{appliedPromo.discountPercent}%)
-                        <button type="button" onClick={() => setAppliedPromo(null)} className="ml-2 text-xs text-gray-400 hover:text-red-500 underline">
-                          remove
-                        </button>
-                      </span>
+                      <span>Coupon {promo.code} ({promo.discountPercent ? `-${promo.discountPercent}%` : ''})</span>
                       <span>-{money(discountAmount)}</span>
                     </div>
                   )}
@@ -447,7 +460,6 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                     <span>Total</span>
                     <span className="text-teal-700 text-lg">{money(cartTotal)}</span>
                   </div>
-                  <p className="text-xs text-gray-500">Have a coupon? Open the shop and enter it in the bag there.</p>
 
                   <div className="space-y-1 pt-2">
                     <label className="text-xs text-gray-500 font-bold uppercase block">Delivery address</label>
@@ -463,7 +475,11 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
 
                   {orderError && <p className="text-sm text-rose-600 font-semibold bg-rose-50 px-3 py-2 rounded-xl">{orderError}</p>}
 
-                  <button onClick={handleCheckout} disabled={isCheckingOut} className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold">
+                  <button
+                    onClick={handleCheckout}
+                    disabled={isCheckingOut || !canCheckout}
+                    className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-sm"
+                  >
                     {isCheckingOut ? 'Placing order...' : 'Place Order'}
                   </button>
                 </div>
@@ -483,7 +499,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                   <div key={o.id} className="p-3 bg-gray-50 border border-gray-100 rounded-2xl space-y-2 text-sm">
                     <div className="flex justify-between items-center gap-2">
                       <span className="text-xs font-semibold text-gray-500">
-                        Order {formatOrderNumber(o.id)} · {new Date(o.createdAt).toLocaleDateString()}
+                        {o.number} · {new Date(o.createdAt).toLocaleDateString()}
                       </span>
                       <span className={`px-2 py-0.5 text-[11px] font-bold rounded uppercase ${STATUS_STYLES[o.status]}`}>{o.status}</span>
                     </div>
@@ -494,25 +510,41 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                           <span>
                             {it.productName} × {it.quantity}
                           </span>
-                          <span>{money(it.price * it.quantity)}</span>
+                          <span>{money(it.lineTotal)}</span>
                         </div>
                       ))}
                     </div>
                     {o.promoCode && (
                       <div className="flex justify-between text-xs text-emerald-700 font-semibold">
                         <span>Coupon {o.promoCode} (-{o.discountPercent}%)</span>
-                        <span>-{money((o.subtotalAmount || 0) - o.totalAmount)}</span>
+                        <span>-{money(o.discountAmount)}</span>
                       </div>
                     )}
                     <p className="text-xs text-gray-500 flex items-center gap-1">
-                      <MapPin size={11} /> {o.address}
+                      <MapPin size={11} className="text-teal-600 shrink-0" /> {o.address}
                     </p>
                     <div className="border-t border-gray-200 pt-1.5 flex justify-between items-center font-bold">
                       <span>Total</span>
                       <span className="text-teal-700">{money(o.totalAmount)}</span>
                     </div>
-                    {o.status === 'pending' && (
-                      <button onClick={() => cancelOrder(o)} className="w-full py-1.5 rounded-xl border border-gray-200 hover:bg-rose-50 hover:text-rose-600 text-xs font-semibold text-gray-600">
+
+                    {/* Order history */}
+                    {o.history && o.history.length > 0 && (
+                      <div className="pt-1 text-[11px] text-gray-500 space-y-0.5 border-t border-gray-200">
+                        <span className="font-bold block text-gray-600">Status updates:</span>
+                        {o.history.map((h, hIdx) => (
+                          <p key={hIdx}>
+                            • <strong className="capitalize">{h.status}</strong>: {h.note || 'Updated'} ({new Date(h.at).toLocaleDateString()})
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    {o.canCancel && (
+                      <button
+                        onClick={() => cancelOrder(o)}
+                        className="w-full py-1.5 rounded-xl border border-gray-200 hover:bg-rose-50 hover:text-rose-600 text-xs font-semibold text-gray-600"
+                      >
                         Cancel order
                       </button>
                     )}

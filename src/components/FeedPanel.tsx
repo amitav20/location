@@ -9,7 +9,8 @@ import { toast, confirmAction } from './Toaster';
 import { timeAgo } from '../utils/time';
 import { MediaInput } from './common/MediaInput';
 import { ReportDialog, ReportTarget } from './common/ReportDialog';
-import { Comment, Post, Story, User } from '../types';
+import { Avatar, EmptyState, LoadMore, Spinner, distanceLabel, errorText } from './common/ui';
+import { Comment, MemberSummary, Post, Story, StoryGroup, User } from '../types';
 import {
   AlertTriangle,
   BarChart2,
@@ -18,6 +19,7 @@ import {
   ChevronRight,
   Clock,
   Edit2,
+  Eye,
   Heart,
   Image,
   MapPin,
@@ -40,7 +42,6 @@ interface FeedPanelProps {
 
 const STORY_REACTIONS = ['🔥', '❤️', '😂', '😮', '😢', '👏'];
 const STORY_IMAGE_MS = 5000;
-const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
 // ---------- Comments (with one level of replies) ----------
 function CommentsSection({
@@ -114,12 +115,12 @@ function CommentsSection({
   const repliesOf = (id: string) => comments.filter((c) => c.parentId === id);
 
   const renderComment = (c: Comment, isReply = false) => {
-    const mine = c.userId === currentUser.id;
+    const mine = c.isMine || c.userId === currentUser.id;
     const canDelete = mine || post.userId === currentUser.id || currentUser.isAdmin;
     return (
       <div key={c.id} className={`flex gap-2 ${isReply ? 'ml-9' : ''}`}>
         <button onClick={() => setAppView('profile', c.userId)} className="shrink-0">
-          <img src={c.userPhoto} alt="" className="w-7 h-7 rounded-full object-cover bg-gray-100" referrerPolicy="no-referrer" />
+          <Avatar src={c.userPhoto} name={c.userName} className="w-7 h-7 rounded-full text-[9px]" />
         </button>
         <div className="flex-1 min-w-0">
           <div className="bg-white px-3 py-2 rounded-2xl border border-gray-100">
@@ -225,13 +226,6 @@ function CommentsSection({
 }
 
 // ---------- Story viewer ----------
-interface StoryGroup {
-  userId: string;
-  userName: string;
-  userPhoto: string;
-  stories: (Story & { distanceKm?: number })[];
-}
-
 function StoryViewer({
   groups,
   startGroup,
@@ -250,11 +244,16 @@ function StoryViewer({
   const [groupIdx, setGroupIdx] = useState(startGroup);
   const [storyIdx, setStoryIdx] = useState(0);
   const [myReaction, setMyReaction] = useState<string | null>(null);
+  const [showViewers, setShowViewers] = useState(false);
+  const [viewers, setViewers] = useState<{ user: MemberSummary; viewedAt: string; reaction: string | null }[]>([]);
+  const [isLoadingViewers, setIsLoadingViewers] = useState(false);
+
   const group = groups[groupIdx];
   const story = group?.stories[storyIdx];
 
   const next = useCallback(() => {
     if (!group) return;
+    setShowViewers(false);
     if (storyIdx < group.stories.length - 1) setStoryIdx(storyIdx + 1);
     else if (groupIdx < groups.length - 1) {
       setGroupIdx(groupIdx + 1);
@@ -263,6 +262,8 @@ function StoryViewer({
   }, [group, storyIdx, groupIdx, groups.length, onClose]);
 
   const prev = () => {
+    if (!group) return;
+    setShowViewers(false);
     if (storyIdx > 0) setStoryIdx(storyIdx - 1);
     else if (groupIdx > 0) {
       setGroupIdx(groupIdx - 1);
@@ -272,12 +273,15 @@ function StoryViewer({
 
   useEffect(() => {
     if (!story) return;
-    setMyReaction(story.reactions?.find((r) => r.userId === currentUser.id)?.reaction || null);
-    if (story.userId !== currentUser.id) api.viewStory(story.id).catch(() => undefined);
-    if (story.mediaType === 'video') return; // videos advance when they end
+    setMyReaction(story.myReaction || null);
+    if (story.userId !== currentUser.id && !story.seen) {
+      api.viewStory(story.id).catch(() => undefined);
+    }
+    if (showViewers) return;
+    if (story.mediaType === 'video') return; // videos advance onEnded
     const timer = window.setTimeout(next, STORY_IMAGE_MS);
     return () => window.clearTimeout(timer);
-  }, [story?.id]);
+  }, [story?.id, showViewers]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -290,7 +294,7 @@ function StoryViewer({
   });
 
   if (!group || !story) return null;
-  const mine = story.userId === currentUser.id;
+  const mine = story.isMine || story.userId === currentUser.id;
 
   const react = async (emoji: string) => {
     try {
@@ -312,6 +316,23 @@ function StoryViewer({
     }
   };
 
+  const toggleViewers = async () => {
+    if (showViewers) {
+      setShowViewers(false);
+      return;
+    }
+    setShowViewers(true);
+    setIsLoadingViewers(true);
+    try {
+      const data = await api.getStoryViewers(story.id);
+      setViewers(data);
+    } catch (err) {
+      toast.error(errorText(err, 'Could not load viewers list.'));
+    } finally {
+      setIsLoadingViewers(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
       <div className="relative bg-zinc-950 w-full max-w-[420px] rounded-3xl overflow-hidden shadow-2xl flex flex-col h-[min(720px,92vh)]">
@@ -326,7 +347,7 @@ function StoryViewer({
 
         <div className="p-4 pt-6 flex items-center justify-between absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent z-10">
           <div className="flex items-center gap-3 min-w-0">
-            <img src={group.userPhoto} alt="" className="w-9 h-9 rounded-full object-cover border border-teal-500" referrerPolicy="no-referrer" />
+            <Avatar src={group.userPhoto} name={group.userName} className="w-9 h-9 rounded-full border border-teal-500 text-xs" />
             <div className="min-w-0">
               <h4 className="font-bold text-white text-sm truncate">{mine ? 'Your story' : group.userName}</h4>
               <p className="text-[11px] text-zinc-400">{timeAgo(story.createdAt)} · disappears after 24 hours</p>
@@ -360,14 +381,56 @@ function StoryViewer({
           <button onClick={next} className="absolute right-0 top-16 bottom-16 w-1/4 flex items-center justify-end pr-2 text-white/60 hover:text-white" aria-label="Next">
             <ChevronRight size={28} />
           </button>
+
+          {/* Viewers modal popup over story */}
+          {showViewers && (
+            <div className="absolute inset-x-0 bottom-0 top-16 bg-black/85 backdrop-blur-md p-4 text-white z-20 flex flex-col rounded-t-3xl">
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <h4 className="font-bold text-sm flex items-center gap-1.5">
+                  <Eye size={16} className="text-teal-400" /> Viewers ({story.viewsCount || 0})
+                </h4>
+                <button onClick={() => setShowViewers(false)} className="text-zinc-400 hover:text-white p-1">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto py-2 space-y-2">
+                {isLoadingViewers ? (
+                  <p className="text-center text-xs text-zinc-400 py-6">Loading viewers...</p>
+                ) : viewers.length === 0 ? (
+                  <p className="text-center text-xs text-zinc-400 py-6">No views yet.</p>
+                ) : (
+                  viewers.map((v) => (
+                    <div key={v.user.id} className="flex items-center justify-between py-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Avatar src={v.user.profilePhoto} name={v.user.name} className="w-8 h-8 rounded-full text-xs" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold truncate">{v.user.name}</p>
+                          <p className="text-[10px] text-zinc-400">@{v.user.username} · {timeAgo(v.viewedAt)}</p>
+                        </div>
+                      </div>
+                      {v.reaction && <span className="text-lg">{v.reaction}</span>}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-zinc-900 p-4 space-y-3">
           {mine ? (
-            <p className="text-center text-xs text-zinc-300">
-              {story.views.length} {story.views.length === 1 ? 'view' : 'views'}
-              {story.reactions.length > 0 && ` · ${story.reactions.map((r) => r.reaction).join(' ')}`}
-            </p>
+            <div className="flex items-center justify-between text-xs text-zinc-300">
+              <button
+                onClick={toggleViewers}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs"
+              >
+                <Eye size={14} className="text-teal-400" />
+                {story.viewsCount || 0} {(story.viewsCount || 0) === 1 ? 'view' : 'views'}
+              </button>
+              <span className="text-zinc-400 font-semibold text-xs">
+                {story.reactionsCount || 0} {(story.reactionsCount || 0) === 1 ? 'reaction' : 'reactions'}
+              </span>
+            </div>
           ) : (
             <div className="flex items-center justify-around">
               {STORY_REACTIONS.map((emoji) => (
@@ -388,10 +451,12 @@ function StoryViewer({
   );
 }
 
-// ---------- Feed ----------
+// ---------- Feed Panel ----------
 export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh, focusPostId }: FeedPanelProps) {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [stories, setStories] = useState<(Story & { distanceKm?: number })[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [storyGroups, setStoryGroups] = useState<StoryGroup[]>([]);
   const [range, setRange] = useState<string>(focusPostId ? 'global' : '25');
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -418,7 +483,21 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
   const fetchFeed = async () => {
     setIsLoading(true);
     try {
-      setPosts(await api.getFeed(range));
+      const page = await api.getFeed(range);
+      let items = page.items;
+
+      // If opening a focused post from notification not already in page
+      if (focusPostId && !items.some((p) => p.id === focusPostId)) {
+        try {
+          const focused = await api.getPost(focusPostId);
+          items = [focused, ...items];
+        } catch {
+          // Post may have been deleted
+        }
+      }
+
+      setPosts(items);
+      setNextCursor(page.next);
     } catch (err) {
       toast.error(errorText(err, 'Could not load the feed.'));
     } finally {
@@ -426,9 +505,26 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
     }
   };
 
+  const handleLoadMore = async () => {
+    if (!nextCursor || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const page = await api.getFeed(range, nextCursor);
+      setPosts((prev) => [...prev, ...page.items]);
+      setNextCursor(page.next);
+    } catch (err) {
+      toast.error(errorText(err, 'Could not load more posts.'));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   const fetchStories = async () => {
     try {
-      setStories(await api.getStories());
+      const groups = await api.getStories();
+      // Sort own story group first
+      groups.sort((a, b) => Number(b.userId === currentUser.id) - Number(a.userId === currentUser.id));
+      setStoryGroups(groups);
     } catch (err) {
       console.error(err);
     }
@@ -450,24 +546,14 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
     const el = document.getElementById(`post-${focusPostId}`);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     else if (posts.length > 0) toast.info('That post is no longer available.');
-  }, [focusPostId, isLoading]);
-
-  // Group stories by author, with your own first
-  const storyGroups: StoryGroup[] = useMemo(() => {
-    const map = new Map<string, StoryGroup>();
-    stories.forEach((s) => {
-      if (!map.has(s.userId)) map.set(s.userId, { userId: s.userId, userName: s.userName || '', userPhoto: s.userPhoto || '', stories: [] });
-      map.get(s.userId)!.stories.push(s);
-    });
-    return [...map.values()].sort((a, b) => Number(b.userId === currentUser.id) - Number(a.userId === currentUser.id));
-  }, [stories, currentUser.id]);
+  }, [focusPostId, isLoading, posts.length]);
 
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload: any = { type: postType, content: newContent.trim() };
     if (postType === 'image' || postType === 'video') {
       if (!mediaUrl.trim()) {
-        toast.error(`Please add a ${postType} link or upload one.`);
+        toast.error(`Please upload a ${postType} from your device.`);
         return;
       }
       payload.mediaUrls = [mediaUrl.trim()];
@@ -488,6 +574,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
       setPollOptions(['', '']);
       setPostType('text');
       fetchFeed();
+      toast.success('Post published!');
     } catch (err) {
       toast.error(errorText(err, 'Could not publish your post.'));
     } finally {
@@ -495,24 +582,29 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
     }
   };
 
-  const patchPost = (id: string, changes: Partial<Post>) => setPosts((list) => list.map((p) => (p.id === id ? { ...p, ...changes } : p)));
+  const patchPost = (id: string, updated: Post | Partial<Post>) => {
+    setPosts((list) => list.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+  };
 
-  const handleReact = async (id: string, flag: 'like' | 'love') => {
+  const handleReact = async (id: string, reaction: 'like' | 'love') => {
+    const post = posts.find((p) => p.id === id);
+    if (!post) return;
+    const nextReaction = post.myReaction === reaction ? null : reaction;
     try {
-      const res = await api.togglePostReact(id, flag);
-      patchPost(id, { likes: res.likes, loves: res.loves });
+      const updated = await api.setReaction(id, nextReaction);
+      patchPost(id, updated);
       triggerNotificationRefresh();
     } catch (err) {
-      toast.error(errorText(err, 'Something went wrong.'));
+      toast.error(errorText(err, 'Could not update reaction.'));
     }
   };
 
   const handleVote = async (postId: string, optionId: string) => {
     try {
-      const res = await api.votePoll(postId, optionId);
-      patchPost(postId, { pollOptions: res.pollOptions });
+      const updated = await api.votePoll(postId, optionId);
+      patchPost(postId, updated);
     } catch (err) {
-      toast.error(errorText(err, 'Something went wrong.'));
+      toast.error(errorText(err, 'Could not submit vote.'));
     }
   };
 
@@ -531,6 +623,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
       const saved = await api.editPost(editingPost.id, editingPost.text.trim());
       patchPost(saved.id, { content: saved.content, editedAt: saved.editedAt });
       setEditingPost(null);
+      toast.success('Post updated.');
     } catch (err) {
       toast.error(errorText(err, 'Could not save post.'));
     }
@@ -550,7 +643,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
   const handleCreateStory = async () => {
     if (!newStoryMedia.trim()) return;
     try {
-      await api.createStory({ mediaUrl: newStoryMedia.trim(), mediaType: newStoryType });
+      await api.createStory(newStoryMedia.trim());
       setNewStoryMedia('');
       setNewStoryType('image');
       setShowStoryWizard(false);
@@ -588,7 +681,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
 
   return (
     <div className="space-y-6">
-      {/* Stories */}
+      {/* Stories list */}
       <div className="flex items-start gap-3 bg-white p-4 rounded-3xl border border-gray-200 overflow-x-auto">
         <button className="flex flex-col items-center shrink-0" onClick={() => setShowStoryWizard(true)}>
           <span className="w-16 h-16 rounded-full border-2 border-dashed border-teal-500/50 flex items-center justify-center bg-teal-50 hover:bg-teal-100">
@@ -597,29 +690,26 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
           <span className="text-[11px] font-semibold text-gray-500 mt-1.5">New Story</span>
         </button>
 
-        {storyGroups.map((g, i) => {
-          const seen = g.userId !== currentUser.id && g.stories.every((s) => s.views?.some((v) => v.userId === currentUser.id));
-          return (
-            <button key={g.userId} onClick={() => setStoryViewerGroup(i)} className="flex flex-col items-center shrink-0">
-              <span className={`relative w-16 h-16 rounded-full p-[3px] ${seen ? 'bg-gray-300' : 'bg-gradient-to-tr from-teal-500 via-emerald-400 to-amber-400'}`}>
-                <img src={g.userPhoto} alt={g.userName} className="w-full h-full rounded-full object-cover border-2 border-white" referrerPolicy="no-referrer" />
-                {g.stories.length > 1 && (
-                  <span className="absolute -bottom-1 -right-1 bg-gray-900 border border-white text-[11px] font-bold text-white px-1.5 rounded-full">{g.stories.length}</span>
-                )}
-              </span>
-              <span className="text-[11px] font-semibold text-gray-700 mt-1.5 max-w-[70px] truncate">
-                {g.userId === currentUser.id ? 'Your story' : g.userName.split(' ')[0]}
-              </span>
-            </button>
-          );
-        })}
+        {storyGroups.map((g, i) => (
+          <button key={g.userId} onClick={() => setStoryViewerGroup(i)} className="flex flex-col items-center shrink-0">
+            <span className={`relative w-16 h-16 rounded-full p-[3px] ${g.allSeen ? 'bg-gray-300' : 'bg-gradient-to-tr from-teal-500 via-emerald-400 to-amber-400'}`}>
+              <Avatar src={g.userPhoto} name={g.userName} className="w-full h-full rounded-full border-2 border-white text-xs" />
+              {g.stories.length > 1 && (
+                <span className="absolute -bottom-1 -right-1 bg-gray-900 border border-white text-[11px] font-bold text-white px-1.5 rounded-full">{g.stories.length}</span>
+              )}
+            </span>
+            <span className="text-[11px] font-semibold text-gray-700 mt-1.5 max-w-[70px] truncate">
+              {g.userId === currentUser.id ? 'Your story' : g.userName.split(' ')[0]}
+            </span>
+          </button>
+        ))}
       </div>
 
       {/* Composer */}
       <div className="bg-white rounded-3xl p-5 border border-gray-200 shadow-sm">
         <form onSubmit={handleCreatePost} className="space-y-4">
           <div className="flex gap-4">
-            <img src={currentUser.profilePhoto} alt="Me" className="w-12 h-12 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+            <Avatar src={currentUser.profilePhoto} name={currentUser.name} className="w-12 h-12 rounded-full shrink-0" />
             <textarea
               value={newContent}
               maxLength={2000}
@@ -632,12 +722,13 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
 
           {(postType === 'image' || postType === 'video') && (
             <div className="bg-gray-50 p-4 rounded-2xl space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block">{postType === 'image' ? 'Photo' : 'Video'}</label>
+              <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block">{postType === 'image' ? 'Upload Photo' : 'Upload Video'}</label>
               <MediaInput
                 value={mediaUrl}
                 onChange={(url) => setMediaUrl(url)}
                 accept={[postType]}
-                placeholder={`Paste a ${postType} link or upload from your device`}
+                allowLinks={false}
+                placeholder="Upload from your device"
                 inputClassName="w-full text-xs bg-white rounded-xl border border-gray-200 p-2.5 focus:outline-none focus:ring-1 focus:ring-teal-500"
               />
             </div>
@@ -710,22 +801,18 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
 
       {/* Posts */}
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-xs text-gray-500 font-semibold">Loading posts...</p>
-        </div>
+        <Spinner label="Loading posts..." />
       ) : posts.length === 0 ? (
-        <div className="bg-white rounded-3xl py-14 px-6 border border-gray-200 text-center space-y-2">
-          <p className="text-sm font-semibold text-gray-600">There are no posts in this area yet.</p>
-          <p className="text-xs text-gray-500">Write the first post, or choose a wider distance above.</p>
-        </div>
+        <EmptyState
+          title="There are no posts in this area yet."
+          text="Write the first post, or choose a wider distance above."
+        />
       ) : (
         <div className="space-y-4">
           {posts.map((post) => {
-            const mine = post.userId === currentUser.id;
-            const liked = post.likes.includes(currentUser.id);
-            const loved = post.loves.includes(currentUser.id);
-            const totalVotes = post.pollOptions?.reduce((sum, o) => sum + o.votes.length, 0) || 0;
+            const mine = post.isMine || post.userId === currentUser.id;
+            const liked = post.myReaction === 'like';
+            const loved = post.myReaction === 'love';
             return (
               <article
                 id={`post-${post.id}`}
@@ -734,14 +821,14 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
               >
                 <div className="flex items-center justify-between gap-2">
                   <button className="flex items-center gap-3 min-w-0 text-left" onClick={() => setAppView('profile', post.userId)}>
-                    <img src={post.authorPhoto} alt={post.authorName} className="w-10 h-10 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+                    <Avatar src={post.authorPhoto} name={post.authorName} className="w-10 h-10 rounded-full" />
                     <span className="min-w-0">
                       <span className="font-bold text-gray-800 text-sm hover:text-teal-700 block truncate">{post.authorName}</span>
                       <span className="flex items-center gap-1.5 text-[11px] text-gray-500 font-semibold">
                         <span className="truncate">@{post.authorUsername}</span>
                         <span>·</span>
                         <span className="flex items-center gap-0.5 text-teal-700 shrink-0">
-                          <MapPin size={10} /> {post.distanceKm === 0 ? 'Here' : `${post.distanceKm} km`}
+                          <MapPin size={10} /> {distanceLabel(post.distanceKm) || 'Nearby'}
                         </span>
                       </span>
                     </span>
@@ -804,7 +891,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                     {post.sharedPost ? (
                       <>
                         <button onClick={() => setAppView('profile', post.sharedPost!.userId)} className="flex items-center gap-2">
-                          <img src={post.sharedPost.authorPhoto} alt="" className="w-6 h-6 rounded-full object-cover" referrerPolicy="no-referrer" />
+                          <Avatar src={post.sharedPost.authorPhoto} name={post.sharedPost.authorName} className="w-6 h-6 rounded-full text-[9px]" />
                           <span className="text-xs font-bold text-gray-700">@{post.sharedPost.authorUsername}</span>
                         </button>
                         {post.sharedPost.content && <p className="text-sm text-gray-600">{post.sharedPost.content}</p>}
@@ -824,27 +911,28 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                 {post.type === 'poll' && post.pollOptions && (
                   <div className="space-y-2 p-3 bg-teal-50/40 rounded-2xl border border-teal-100">
                     {post.pollOptions.map((opt) => {
-                      const pct = totalVotes > 0 ? Math.round((opt.votes.length / totalVotes) * 100) : 0;
-                      const voted = opt.votes.includes(currentUser.id);
+                      const voted = post.myVoteOptionId === opt.id;
                       return (
                         <button
                           key={opt.id}
                           type="button"
                           onClick={() => handleVote(post.id, opt.id)}
-                          className="relative w-full text-left p-3 rounded-xl text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 overflow-hidden flex justify-between items-center"
+                          className={`relative w-full text-left p-3 rounded-xl text-sm font-semibold transition-all overflow-hidden flex justify-between items-center ${
+                            voted ? 'bg-teal-50 border-2 border-teal-500 text-teal-900 shadow-sm' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                          }`}
                         >
-                          <span className="absolute left-0 top-0 bottom-0 bg-teal-100/60 transition-all duration-300" style={{ width: `${pct}%` }} />
+                          <span className="absolute left-0 top-0 bottom-0 bg-teal-100/60 transition-all duration-300" style={{ width: `${opt.percent}%` }} />
                           <span className="relative flex items-center gap-2">
-                            {voted && <CheckCircle2 size={14} className="text-teal-600" />}
+                            {voted && <CheckCircle2 size={14} className="text-teal-600 shrink-0" />}
                             {opt.text}
                           </span>
-                          <span className="relative text-xs font-bold text-teal-800">
-                            {pct}% ({opt.votes.length})
+                          <span className="relative text-xs font-bold text-teal-800 shrink-0">
+                            {opt.percent}% ({opt.votes})
                           </span>
                         </button>
                       );
                     })}
-                    <p className="text-[11px] text-gray-500 px-1">{totalVotes} {totalVotes === 1 ? 'vote' : 'votes'}</p>
+                    <p className="text-[11px] text-gray-500 px-1">{post.totalVotes} {post.totalVotes === 1 ? 'vote' : 'votes'}</p>
                   </div>
                 )}
 
@@ -854,15 +942,15 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                       onClick={() => handleReact(post.id, 'like')}
                       className={`p-2 rounded-xl flex items-center gap-1.5 text-xs font-bold ${liked ? 'bg-teal-50 text-teal-700' : 'text-gray-500 hover:bg-gray-50'}`}
                     >
-                      <Heart size={14} className={liked ? 'fill-teal-600' : ''} /> {post.likes.length}
-                      <span className="hidden sm:inline">{post.likes.length === 1 ? 'Like' : 'Likes'}</span>
+                      <Heart size={14} className={liked ? 'fill-teal-600' : ''} /> {post.likesCount}
+                      <span className="hidden sm:inline">{post.likesCount === 1 ? 'Like' : 'Likes'}</span>
                     </button>
                     <button
                       onClick={() => handleReact(post.id, 'love')}
                       className={`p-2 rounded-xl flex items-center gap-1.5 text-xs font-bold ${loved ? 'bg-rose-50 text-rose-600' : 'text-gray-500 hover:bg-gray-50'}`}
                     >
-                      <Heart size={14} className={loved ? 'fill-rose-500 stroke-rose-500' : 'stroke-rose-400'} /> {post.loves.length}
-                      <span className="hidden sm:inline">{post.loves.length === 1 ? 'Love' : 'Loves'}</span>
+                      <Heart size={14} className={loved ? 'fill-rose-500 stroke-rose-500' : 'stroke-rose-400'} /> {post.lovesCount}
+                      <span className="hidden sm:inline">{post.lovesCount === 1 ? 'Love' : 'Loves'}</span>
                     </button>
                     <button
                       onClick={() => toggleComments(post.id)}
@@ -895,6 +983,8 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
               </article>
             );
           })}
+
+          {nextCursor && <LoadMore onClick={handleLoadMore} isLoading={isLoadingMore} />}
         </div>
       )}
 
@@ -907,7 +997,13 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
             setStoryViewerGroup(null);
             fetchStories();
           }}
-          onDeleted={(id) => setStories((list) => list.filter((s) => s.id !== id))}
+          onDeleted={(id) => {
+            setStoryGroups((list) =>
+              list
+                .map((g) => ({ ...g, stories: g.stories.filter((s) => s.id !== id) }))
+                .filter((g) => g.stories.length > 0)
+            );
+          }}
           onReport={setReportTarget}
         />
       )}
@@ -916,7 +1012,7 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-xl space-y-4">
             <h3 className="font-bold text-lg text-gray-800">Add a Story</h3>
-            <p className="text-xs text-gray-500">Stories are shown to people within 50 km and disappear after 24 hours.</p>
+            <p className="text-xs text-gray-500">Stories are shown to people nearby and disappear after 24 hours.</p>
             <div className="flex gap-2">
               {(['image', 'video'] as const).map((t) => (
                 <button
@@ -935,8 +1031,9 @@ export function FeedPanel({ currentUser, setAppView, triggerNotificationRefresh,
                 setNewStoryMedia(url);
                 if (kind === 'video' || kind === 'image') setNewStoryType(kind);
               }}
-              accept={['image', 'video']}
-              placeholder="Paste a link or upload"
+              accept={[newStoryType]}
+              allowLinks={false}
+              placeholder="Upload from your device"
             />
             <div className="flex gap-2 justify-end pt-2">
               <button onClick={() => setShowStoryWizard(false)} className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-500 hover:bg-gray-100">Cancel</button>

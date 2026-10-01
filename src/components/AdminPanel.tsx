@@ -7,80 +7,147 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { toast, confirmAction } from './Toaster';
 import { timeAgo } from '../utils/time';
-import { Report, User } from '../types';
-import { AlertCircle, CheckSquare, Search, Shield, Trash2 } from 'lucide-react';
+import { Avatar, Spinner, money, errorText } from './common/ui';
+import { AdminStats, AdminUserRow, Business, Report, User } from '../types';
+import {
+  AlertCircle,
+  Ban,
+  Check,
+  CheckSquare,
+  Clock,
+  DollarSign,
+  Search,
+  Shield,
+  ShoppingBag,
+  Store,
+  Trash2,
+  Users,
+  X
+} from 'lucide-react';
 
 interface AdminPanelProps {
   currentUser: User;
 }
 
-interface AdminUserRow {
-  id: string;
-  name: string;
-  username: string;
-  email: string;
-  isBanned: boolean;
-  isAdmin: boolean;
-}
-
-interface AdminBusinessRow {
-  id: string;
-  name: string;
-  category: string;
-  isVerified: boolean;
-  ownerName: string;
-}
-
-const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
-
 export function AdminPanel({ currentUser }: AdminPanelProps) {
-  const [metrics, setMetrics] = useState<any>(null);
-  const [users, setUsers] = useState<AdminUserRow[]>([]);
-  const [businesses, setBusinesses] = useState<AdminBusinessRow[]>([]);
+  const [stats, setStats] = useState<AdminStats | null>(null);
+
+  // Reports
+  const [reportStatus, setReportStatus] = useState<'pending' | 'resolved' | 'dismissed'>('pending');
   const [reports, setReports] = useState<Report[]>([]);
+  const [loadingReports, setLoadingReports] = useState(false);
+
+  // Users
+  const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [userSearch, setUserSearch] = useState('');
-  const [showResolved, setShowResolved] = useState(false);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Businesses
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [businessStatus, setBusinessStatus] = useState<'pending' | 'verified' | undefined>(undefined);
+  const [businessSearch, setBusinessSearch] = useState('');
+  const [loadingBusinesses, setLoadingBusinesses] = useState(false);
+
   const [adminErr, setAdminErr] = useState<string>('');
 
-  const load = async () => {
-    setAdminErr('');
+  const loadStats = async () => {
     try {
-      const res = await api.getAdminMetrics();
-      setMetrics(res.metrics);
-      setUsers(res.users);
-      setBusinesses(res.businesses);
-      setReports(res.reports);
+      setStats(await api.getAdminStats());
     } catch (err) {
       setAdminErr(errorText(err, 'You must be an administrator to see this page.'));
+    }
+  };
+
+  const loadReports = async (status = reportStatus) => {
+    setLoadingReports(true);
+    try {
+      setReports(await api.getReports(status));
+    } catch (err) {
+      console.error(err);
     } finally {
-      setIsLoading(false);
+      setLoadingReports(false);
+    }
+  };
+
+  const loadUsers = async (q = userSearch) => {
+    setLoadingUsers(true);
+    try {
+      setUsers(await api.getAdminUsers({ search: q || undefined }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const loadBusinesses = async (st = businessStatus, q = businessSearch) => {
+    setLoadingBusinesses(true);
+    try {
+      setBusinesses(await api.getAdminBusinesses({ status: st, search: q || undefined }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingBusinesses(false);
     }
   };
 
   useEffect(() => {
-    load();
+    loadStats();
+    loadReports();
+    loadUsers();
+    loadBusinesses();
   }, []);
+
+  useEffect(() => {
+    loadReports(reportStatus);
+  }, [reportStatus]);
+
+  useEffect(() => {
+    const t = setTimeout(() => loadUsers(userSearch), 350);
+    return () => clearTimeout(t);
+  }, [userSearch]);
+
+  useEffect(() => {
+    const t = setTimeout(() => loadBusinesses(businessStatus, businessSearch), 350);
+    return () => clearTimeout(t);
+  }, [businessStatus, businessSearch]);
 
   const act = async (action: () => Promise<unknown>, success: string) => {
     try {
       await action();
       toast.success(success);
-      load();
+      loadStats();
+      loadReports(reportStatus);
+      loadUsers(userSearch);
+      loadBusinesses(businessStatus, businessSearch);
     } catch (err) {
-      toast.error(errorText(err, 'Something went wrong.'));
+      toast.error(errorText(err, 'Action failed.'));
     }
   };
 
   const toggleBan = async (u: AdminUserRow) => {
-    if (!u.isBanned && !(await confirmAction(`Ban ${u.name}? They will be signed out and unable to sign in.`, 'Ban'))) return;
-    act(() => api.banUser(u.id), u.isBanned ? `${u.name} was unbanned.` : `${u.name} was banned.`);
+    if (u.isAdmin) return;
+    if (!u.isBanned && !(await confirmAction(`Ban ${u.name}? They will be signed out immediately.`, 'Ban'))) return;
+    if (u.isBanned) {
+      act(() => api.unbanUser(u.id), `${u.name} was unbanned.`);
+    } else {
+      act(() => api.banUser(u.id), `${u.name} was banned.`);
+    }
   };
 
-  const removeContent = async (r: Report) => {
-    const what = r.targetType === 'user' ? 'ban this user' : `delete this ${r.targetType}`;
-    if (!(await confirmAction(`Do you want to ${what}? This resolves all reports about it.`, 'Confirm'))) return;
-    act(() => api.removeReportedContent(r.id), 'Done. The report is resolved.');
+  const resolveReport = async (r: Report, action: 'remove_content' | 'ban_user' | 'dismiss') => {
+    const label = action === 'remove_content' ? 'Remove content' : action === 'ban_user' ? 'Ban user' : 'Dismiss';
+    if (!(await confirmAction(`${label}? This will resolve the report.`, label))) return;
+    act(() => api.resolveReport(r.id, action), `Report resolved: ${label}.`);
+  };
+
+  const toggleVerifyBusiness = async (b: Business) => {
+    if (b.isVerified) {
+      if (!(await confirmAction(`Revoke verification for "${b.name}"? The shop will be hidden from the public directory.`, 'Revoke'))) return;
+      act(() => api.unverifyBusiness(b.id), `${b.name} is now unverified.`);
+    } else {
+      act(() => api.verifyBusiness(b.id), `${b.name} is now verified!`);
+    }
   };
 
   if (adminErr) {
@@ -93,158 +160,273 @@ export function AdminPanel({ currentUser }: AdminPanelProps) {
     );
   }
 
-  const shownUsers = users.filter(
-    (u) => !userSearch || u.name.toLowerCase().includes(userSearch.toLowerCase()) || u.username.toLowerCase().includes(userSearch.toLowerCase())
-  );
-  const sortedBusinesses = [...businesses].sort((a, b) => Number(a.isVerified) - Number(b.isVerified));
-  const shownReports = reports.filter((r) => showResolved || r.status !== 'resolved');
-
   return (
-    <div className="space-y-6" id="admin-workspace">
+    <div className="space-y-6 text-left" id="admin-workspace">
       <div className="bg-gradient-to-r from-red-600 to-rose-600 rounded-3xl p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold font-display flex items-center gap-2">
             <Shield size={22} /> Admin Dashboard
           </h2>
-          <p className="text-xs text-rose-100 mt-1">Manage users, verify businesses and review reports.</p>
+          <p className="text-xs text-rose-100 mt-1">Manage users, verify local shops and moderate reported content.</p>
         </div>
-        <button onClick={load} className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-bold rounded-xl">
+        <button
+          onClick={() => {
+            loadStats();
+            loadReports();
+            loadUsers();
+            loadBusinesses();
+          }}
+          className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 text-white text-xs font-bold rounded-xl"
+        >
           Refresh
         </button>
       </div>
 
-      {isLoading ? (
-        <div className="text-center py-12">
-          <div className="w-8 h-8 border-4 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-xs text-gray-500 font-semibold">Loading admin data...</p>
+      {/* Metrics */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
+            <span className="text-xs text-gray-500 font-bold block uppercase">Total Users</span>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{stats.users.total}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{stats.users.newLast7Days} new this week · {stats.users.banned} banned</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
+            <span className="text-xs text-gray-500 font-bold block uppercase">Posts</span>
+            <p className="text-2xl font-bold text-indigo-600 mt-1">{stats.posts.total}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{stats.posts.today} today</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
+            <span className="text-xs text-gray-500 font-bold block uppercase">Shops</span>
+            <p className="text-2xl font-bold text-teal-600 mt-1">{stats.businesses.total}</p>
+            <p className="text-[11px] text-amber-600 font-semibold mt-0.5">{stats.businesses.pendingVerification} awaiting verification</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
+            <span className="text-xs text-gray-500 font-bold block uppercase">Orders</span>
+            <p className="text-2xl font-bold text-sky-600 mt-1">{stats.orders.total}</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">{money(stats.orders.deliveredRevenue)} revenue</p>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-gray-200 text-center col-span-2 sm:col-span-1">
+            <span className="text-xs text-gray-500 font-bold block uppercase">Pending Reports</span>
+            <p className="text-2xl font-bold text-rose-600 mt-1">{stats.reports.pending}</p>
+            <p className="text-[11px] text-rose-500 font-semibold mt-0.5">Need review</p>
+          </div>
         </div>
-      ) : (
-        <>
-          {metrics && (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {[
-                { label: 'Active users', count: metrics.activeUsers, color: 'text-emerald-600' },
-                { label: 'Banned', count: metrics.bannedCount, color: 'text-red-600' },
-                { label: 'Verified shops', count: metrics.verifiedBiz, color: 'text-teal-600' },
-                { label: 'Awaiting verification', count: metrics.unverifiedBiz, color: 'text-amber-600' },
-                { label: 'Posts', count: metrics.totalPosts, color: 'text-indigo-600' },
-                { label: 'Open reports', count: metrics.pendingReports, color: 'text-rose-600' }
-              ].map((m) => (
-                <div key={m.label} className="bg-white p-4 rounded-2xl border border-gray-200 text-center">
-                  <span className="text-xs text-gray-500 font-bold block">{m.label}</span>
-                  <p className={`text-2xl font-bold mt-1 ${m.color}`}>{m.count}</p>
+      )}
+
+      {/* Reports Section */}
+      <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold text-sm text-gray-800">Reports</h3>
+            <span className="text-xs font-semibold text-gray-400">({reports.length})</span>
+          </div>
+
+          <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl">
+            {(['pending', 'resolved', 'dismissed'] as const).map((st) => (
+              <button
+                key={st}
+                onClick={() => setReportStatus(st)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all ${
+                  reportStatus === st ? 'bg-white text-gray-900 shadow-2xs' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                {st}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {loadingReports ? (
+          <Spinner label="Loading reports..." />
+        ) : reports.length === 0 ? (
+          <p className="text-sm text-gray-500 py-8 text-center">No {reportStatus} reports to review.</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {reports.map((r) => (
+              <div key={r.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2 text-sm flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="text-xs font-bold uppercase text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {r.targetType}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 text-[11px] font-bold rounded uppercase ${
+                        r.status === 'resolved' ? 'bg-gray-200 text-gray-700' : r.status === 'dismissed' ? 'bg-slate-200 text-slate-700' : 'bg-red-100 text-red-700'
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  </div>
+
+                  {r.targetPreview && (
+                    <p className="text-xs text-gray-700 bg-white border border-gray-200 rounded-xl p-3 break-words font-mono">
+                      “{r.targetPreview}”
+                    </p>
+                  )}
+
+                  <div className="text-xs text-gray-600 space-y-1">
+                    <p><strong>Reason:</strong> {r.reason}</p>
+                    <p className="text-[11px] text-gray-400">
+                      Reported by {r.reporterName} · {timeAgo(r.createdAt)}
+                      {r.openReportsOnTarget > 1 && (
+                        <span className="ml-1 text-red-600 font-bold">({r.openReportsOnTarget} open reports on target)</span>
+                      )}
+                    </p>
+                    {r.resolution && <p className="text-emerald-700 text-xs"><strong>Resolution:</strong> {r.resolution}</p>}
+                  </div>
+                </div>
+
+                {r.status === 'pending' && (
+                  <div className="flex flex-wrap gap-2 pt-3 border-t border-gray-200">
+                    {r.targetExists && (
+                      <button
+                        onClick={() => resolveReport(r, 'remove_content')}
+                        className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 shadow-2xs"
+                      >
+                        <Trash2 size={13} /> Remove content
+                      </button>
+                    )}
+                    {r.targetAuthorId && (
+                      <button
+                        onClick={() => resolveReport(r, 'ban_user')}
+                        className="flex-1 py-2 bg-rose-800 hover:bg-rose-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1 shadow-2xs"
+                      >
+                        <Ban size={13} /> Ban user
+                      </button>
+                    )}
+                    <button
+                      onClick={() => resolveReport(r, 'dismiss')}
+                      className="py-2 px-3 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1 shadow-2xs"
+                    >
+                      <CheckSquare size={13} /> Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Users & Businesses Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Users Section */}
+        <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-sm text-gray-800">Users ({users.length})</h3>
+          </div>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+            <input
+              value={userSearch}
+              onChange={(e) => setUserSearch(e.target.value)}
+              placeholder="Search users by name, username or email..."
+              className="w-full text-xs rounded-xl border border-gray-200 pl-8 pr-3 py-2.5 outline-none focus:ring-1 focus:ring-red-500 bg-gray-50 focus:bg-white"
+            />
+          </div>
+
+          {loadingUsers ? (
+            <Spinner label="Searching users..." />
+          ) : users.length === 0 ? (
+            <p className="text-xs text-gray-500 py-6 text-center">No users match your search.</p>
+          ) : (
+            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
+              {users.map((u) => (
+                <div key={u.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar src={u.profilePhoto} name={u.name} className="w-8 h-8 rounded-full text-xs shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-800 text-xs truncate">
+                        {u.name} {u.isAdmin && <span className="text-[10px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-bold ml-1">ADMIN</span>}
+                      </p>
+                      <span className="text-[11px] text-gray-500 block truncate">@{u.username} · {u.email}</span>
+                      <span className="text-[10px] text-gray-400">
+                        {u.postsCount} posts · joined {new Date(u.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {!u.isAdmin && u.id !== currentUser.id && (
+                    <button
+                      onClick={() => toggleBan(u)}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 transition-all ${
+                        u.isBanned ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-red-50 text-red-700 hover:bg-red-100'
+                      }`}
+                    >
+                      {u.isBanned ? 'Unban' : 'Ban'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           )}
+        </section>
 
-          {/* Reports first: they need action */}
-          <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-bold text-sm text-gray-800">Reports ({shownReports.length})</h3>
-              <label className="text-xs text-gray-600 flex items-center gap-1.5 cursor-pointer">
-                <input type="checkbox" checked={showResolved} onChange={(e) => setShowResolved(e.target.checked)} className="accent-red-600" />
-                Show resolved
-              </label>
+        {/* Businesses Section */}
+        <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-sm text-gray-800">Shops ({businesses.length})</h3>
+            <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg text-xs">
+              <button
+                onClick={() => setBusinessStatus(undefined)}
+                className={`px-2 py-1 rounded-md font-semibold ${businessStatus === undefined ? 'bg-white shadow-2xs text-gray-900' : 'text-gray-500'}`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setBusinessStatus('pending')}
+                className={`px-2 py-1 rounded-md font-semibold ${businessStatus === 'pending' ? 'bg-white shadow-2xs text-amber-700' : 'text-gray-500'}`}
+              >
+                Pending
+              </button>
+              <button
+                onClick={() => setBusinessStatus('verified')}
+                className={`px-2 py-1 rounded-md font-semibold ${businessStatus === 'verified' ? 'bg-white shadow-2xs text-teal-700' : 'text-gray-500'}`}
+              >
+                Verified
+              </button>
             </div>
-            {shownReports.length === 0 ? (
-              <p className="text-sm text-gray-500 py-6 text-center">No reports to review.</p>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {shownReports.map((r) => (
-                  <div key={r.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-2 text-sm">
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="text-xs font-bold uppercase text-gray-500">{r.targetType}</span>
-                      <span
-                        className={`px-2 py-0.5 text-[11px] font-bold rounded uppercase ${r.status === 'resolved' ? 'bg-gray-200 text-gray-600' : 'bg-red-100 text-red-700'}`}
-                      >
-                        {r.status}
-                      </span>
-                    </div>
-                    <p className="font-semibold text-gray-800">{r.targetName || 'Deleted content'}</p>
-                    {r.targetPreview && <p className="text-gray-600 bg-white border border-gray-100 rounded-xl p-2 break-words">“{r.targetPreview}”</p>}
-                    <p className="text-xs text-gray-600">
-                      <strong>Reason:</strong> {r.reason}
-                    </p>
-                    <p className="text-[11px] text-gray-500">
-                      Reported by {r.reporterName} · {timeAgo(r.createdAt)}
-                    </p>
-                    {r.status !== 'resolved' && (
-                      <div className="flex gap-2 pt-1">
-                        {r.targetExists && (
-                          <button onClick={() => removeContent(r)} className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
-                            <Trash2 size={12} /> {r.targetType === 'user' ? 'Ban user' : 'Remove content'}
-                          </button>
-                        )}
-                        <button onClick={() => act(() => api.resolveReport(r.id), 'Report dismissed.')} className="flex-1 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
-                          <CheckSquare size={12} /> Dismiss
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
-              <h3 className="font-bold text-sm text-gray-800">Users ({users.length})</h3>
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-2.5 text-gray-400" />
-                <input
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  placeholder="Search users..."
-                  className="w-full text-sm rounded-xl border border-gray-200 pl-8 pr-3 py-2 outline-none focus:ring-1 focus:ring-red-500"
-                />
-              </div>
-              <div className="space-y-2 max-h-[420px] overflow-y-auto">
-                {shownUsers.map((u) => (
-                  <div key={u.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-800 text-sm truncate">
-                        {u.name} {u.isAdmin && <span className="text-[11px] text-red-600 font-bold ml-1">ADMIN</span>}
-                      </p>
-                      <span className="text-xs text-gray-500 block truncate">@{u.username} · {u.email}</span>
-                    </div>
-                    {!u.isAdmin && u.id !== currentUser.id && (
-                      <button
-                        onClick={() => toggleBan(u)}
-                        className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 ${u.isBanned ? 'bg-emerald-100 text-emerald-800' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
-                      >
-                        {u.isBanned ? 'Unban' : 'Ban'}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="bg-white p-5 rounded-3xl border border-gray-200 shadow-sm space-y-3">
-              <h3 className="font-bold text-sm text-gray-800">Businesses ({businesses.length})</h3>
-              <div className="space-y-2 max-h-[470px] overflow-y-auto">
-                {sortedBusinesses.map((b) => (
-                  <div key={b.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-800 text-sm truncate">{b.name}</p>
-                      <span className="text-xs text-gray-500 block truncate">
-                        {b.category} · owner {b.ownerName}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => act(() => api.verifyBusiness(b.id), b.isVerified ? `${b.name} is hidden until verified again.` : `${b.name} is now verified.`)}
-                      className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 ${b.isVerified ? 'bg-amber-100 text-amber-800' : 'bg-teal-600 text-white hover:bg-teal-700'}`}
-                    >
-                      {b.isVerified ? 'Revoke' : 'Verify'}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
           </div>
-        </>
-      )}
+
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-3 text-gray-400" />
+            <input
+              value={businessSearch}
+              onChange={(e) => setBusinessSearch(e.target.value)}
+              placeholder="Search shops by name..."
+              className="w-full text-xs rounded-xl border border-gray-200 pl-8 pr-3 py-2.5 outline-none focus:ring-1 focus:ring-teal-500 bg-gray-50 focus:bg-white"
+            />
+          </div>
+
+          {loadingBusinesses ? (
+            <Spinner label="Searching businesses..." />
+          ) : businesses.length === 0 ? (
+            <p className="text-xs text-gray-500 py-6 text-center">No businesses found.</p>
+          ) : (
+            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
+              {businesses.map((b) => (
+                <div key={b.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-800 text-xs truncate">{b.name}</p>
+                    <span className="text-[11px] text-gray-500 block truncate">
+                      {b.category} {b.ownerName ? `· owner: ${b.ownerName}` : ''}
+                    </span>
+                    <span className="text-[10px] text-gray-400 block truncate">{b.address}</span>
+                  </div>
+                  <button
+                    onClick={() => toggleVerifyBusiness(b)}
+                    className={`px-3 py-1.5 rounded-xl font-bold text-xs shrink-0 transition-all ${
+                      b.isVerified ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-teal-600 text-white hover:bg-teal-700'
+                    }`}
+                  >
+                    {b.isVerified ? 'Revoke' : 'Verify'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

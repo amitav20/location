@@ -4,15 +4,15 @@
  */
 
 import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, EventInput } from '../api';
 import { toast, confirmAction } from './Toaster';
 import { parseLocalDate } from '../utils/time';
 import { MediaInput } from './common/MediaInput';
+import { Avatar, SafeImage, Spinner, distanceLabel, errorText } from './common/ui';
 import type { PickedLocation } from './common/LocationPicker';
 import { LocalEvent, User } from '../types';
 import { Calendar, Clock, Edit2, MapPin, Plus, Trash2, Users } from 'lucide-react';
 
-// The map picker pulls in Leaflet, so only load it when the form is opened
 const LocationPicker = lazy(() => import('./common/LocationPicker').then((m) => ({ default: m.LocationPicker })));
 
 interface EventsPanelProps {
@@ -30,10 +30,10 @@ interface EventForm {
   date: string;
   time: string;
   image: string;
+  originalImage: string;
   location: PickedLocation;
 }
 
-const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 const todayYmd = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -73,8 +73,9 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
       description: '',
       locationName: '',
       date: '',
-      time: '',
+      time: '18:00',
       image: '',
+      originalImage: '',
       location: { latitude: currentUser.location.latitude, longitude: currentUser.location.longitude, label: currentUser.location.city || 'My location' }
     });
 
@@ -87,6 +88,7 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
       date: e.date,
       time: e.time,
       image: e.image || '',
+      originalImage: e.image || '',
       location: { latitude: e.latitude, longitude: e.longitude, label: e.locationName }
     });
 
@@ -94,10 +96,10 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
     ev.preventDefault();
     if (!form) return;
     setIsSaving(true);
-    const payload = {
-      name: form.name,
-      description: form.description,
-      locationName: form.locationName || form.location.label,
+    const payload: EventInput = {
+      name: form.name.trim(),
+      description: form.description.trim(),
+      locationName: form.locationName.trim() || form.location.label,
       date: form.date,
       time: form.time,
       image: form.image,
@@ -105,9 +107,13 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
       longitude: form.location.longitude
     };
     try {
-      if (form.id) await api.updateEvent(form.id, payload);
-      else await api.createEvent(payload);
-      toast.success(form.id ? 'Event updated.' : 'Event created. People nearby have been notified.');
+      if (form.id) {
+        await api.updateEvent(form.id, payload, form.originalImage);
+        toast.success('Event updated.');
+      } else {
+        await api.createEvent(payload);
+        toast.success('Event created. People nearby have been notified.');
+      }
       setForm(null);
       fetchEvents();
       triggerNotificationRefresh();
@@ -118,24 +124,25 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
     }
   };
 
-  const deleteEvent = async (e: LocalEvent) => {
+  const cancelEvent = async (e: LocalEvent) => {
     if (!(await confirmAction(`Cancel "${e.name}"? Everyone who joined will be notified.`, 'Cancel event'))) return;
     try {
-      await api.deleteEvent(e.id);
-      setEvents((list) => list.filter((x) => x.id !== e.id));
+      await api.cancelEvent(e.id);
+      setEvents((list) => list.map((x) => (x.id === e.id ? { ...x, isCancelled: true } : x)));
       toast.success('Event cancelled.');
     } catch (err) {
       toast.error(errorText(err, 'Could not cancel the event.'));
     }
   };
 
-  const toggleJoin = async (id: string) => {
+  const toggleJoin = async (e: LocalEvent) => {
+    const isGoing = e.myStatus === 'going';
     try {
-      const res = await api.toggleEventJoin(id);
-      setEvents((list) => list.map((e) => (e.id === id ? { ...e, participants: res.event.participants, participantsInfo: res.event.participantsInfo } : e)));
-      toast.success(res.joined ? "You're going!" : 'You left the event.');
+      const updated = await api.setAttendance(e.id, !isGoing);
+      setEvents((list) => list.map((evt) => (evt.id === e.id ? updated : evt)));
+      toast.success(!isGoing ? "You're going!" : 'You left the event.');
     } catch (err) {
-      toast.error(errorText(err, 'Something went wrong.'));
+      toast.error(errorText(err, 'Could not update attendance.'));
     }
   };
 
@@ -167,10 +174,7 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12">
-          <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-xs text-gray-500 font-semibold">Loading events...</p>
-        </div>
+        <Spinner label="Loading events..." tone="border-amber-500" />
       ) : events.length === 0 ? (
         <div className="text-center bg-white border border-gray-200 py-16 rounded-3xl space-y-3">
           <Calendar size={34} className="text-amber-400 mx-auto" />
@@ -180,29 +184,47 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {events.map((evt) => {
-            const hasJoined = evt.participants.includes(currentUser.id);
-            const isOrganizer = evt.creatorId === currentUser.id;
+            const isGoing = evt.myStatus === 'going';
+            const isOrganizer = evt.isOrganizer || evt.creatorId === currentUser.id;
             const canManage = isOrganizer || currentUser.isAdmin;
             const date = parseLocalDate(evt.date);
             return (
               <div
                 id={`event-${evt.id}`}
                 key={evt.id}
-                className={`bg-white rounded-3xl overflow-hidden border shadow-sm flex flex-col ${evt.id === focusEventId ? 'border-amber-400 ring-2 ring-amber-100' : 'border-gray-200'} ${evt.isPast ? 'opacity-70' : ''}`}
+                className={`bg-white rounded-3xl overflow-hidden border shadow-sm flex flex-col ${
+                  evt.id === focusEventId ? 'border-amber-400 ring-2 ring-amber-100' : 'border-gray-200'
+                } ${evt.isPast || evt.isCancelled ? 'opacity-70' : ''}`}
               >
                 <div className="h-44 bg-gray-100 relative">
-                  <img src={evt.image} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                  <SafeImage
+                    src={evt.image}
+                    alt={evt.name}
+                    className="w-full h-full object-cover"
+                    fallback={<Calendar size={48} className="text-gray-300" />}
+                  />
                   <div className="absolute bottom-3 left-3 bg-white/95 px-3 py-1.5 rounded-xl text-center shadow-sm">
                     <span className="text-[11px] font-bold text-amber-700 uppercase block leading-none">{date.toLocaleDateString([], { month: 'short' })}</span>
                     <span className="text-lg font-black text-gray-800 leading-none">{date.getDate()}</span>
                   </div>
-                  {evt.isPast && <span className="absolute top-3 left-3 bg-gray-900/80 text-white text-[11px] font-bold px-2 py-1 rounded-lg">Past event</span>}
-                  {canManage && !evt.isPast && (
+
+                  {evt.isCancelled && (
+                    <span className="absolute top-3 left-3 bg-rose-600 text-white text-[11px] font-bold px-2 py-1 rounded-lg">
+                      Cancelled
+                    </span>
+                  )}
+                  {!evt.isCancelled && evt.isPast && (
+                    <span className="absolute top-3 left-3 bg-gray-900/80 text-white text-[11px] font-bold px-2 py-1 rounded-lg">
+                      Past event
+                    </span>
+                  )}
+
+                  {canManage && !evt.isPast && !evt.isCancelled && (
                     <div className="absolute top-3 right-3 flex gap-1.5">
                       <button onClick={() => openEditForm(evt)} className="w-8 h-8 rounded-lg bg-white/95 text-gray-700 hover:text-amber-700 flex items-center justify-center shadow" title="Edit event">
                         <Edit2 size={14} />
                       </button>
-                      <button onClick={() => deleteEvent(evt)} className="w-8 h-8 rounded-lg bg-white/95 text-gray-700 hover:text-rose-600 flex items-center justify-center shadow" title="Cancel event">
+                      <button onClick={() => cancelEvent(evt)} className="w-8 h-8 rounded-lg bg-white/95 text-gray-700 hover:text-rose-600 flex items-center justify-center shadow" title="Cancel event">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -211,7 +233,7 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
 
                 <div className="p-5 flex-1 flex flex-col gap-4">
                   <div className="space-y-1.5">
-                    <h4 className="font-bold text-gray-800">{evt.name}</h4>
+                    <h4 className="font-bold text-gray-800 text-base">{evt.name}</h4>
                     <p className="text-xs text-gray-500">
                       Hosted by{' '}
                       <button onClick={() => setAppView('profile', evt.creatorId)} className="font-semibold text-gray-700 hover:text-amber-700">
@@ -223,7 +245,8 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
 
                   <div className="space-y-1.5 text-xs text-gray-600">
                     <p className="flex items-center gap-1.5">
-                      <MapPin size={13} className="text-amber-500 shrink-0" /> {evt.locationName} · {evt.distanceKm} km away
+                      <MapPin size={13} className="text-amber-500 shrink-0" /> {evt.locationName}
+                      {evt.distanceKm !== undefined && <span> · {distanceLabel(evt.distanceKm)} away</span>}
                     </p>
                     <p className="flex items-center gap-1.5">
                       <Clock size={13} className="text-amber-500 shrink-0" /> {date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}, {evt.time}
@@ -235,24 +258,26 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
                       <div className="flex -space-x-2">
                         {(evt.participantsInfo || []).slice(0, 5).map((p) => (
                           <button key={p.id} onClick={() => setAppView('profile', p.id)} title={p.name}>
-                            <img src={p.profilePhoto} alt={p.name} className="w-7 h-7 rounded-full object-cover border-2 border-white" referrerPolicy="no-referrer" />
+                            <Avatar src={p.profilePhoto} name={p.name} className="w-7 h-7 rounded-full border-2 border-white text-[10px]" />
                           </button>
                         ))}
                       </div>
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
-                        <Users size={12} /> {evt.participants.length} going
+                      <span className="text-xs text-gray-500 flex items-center gap-1 font-semibold">
+                        <Users size={12} /> {evt.attendeesCount} going
                       </span>
                     </div>
 
-                    {!evt.isPast &&
+                    {!evt.isPast && !evt.isCancelled &&
                       (isOrganizer ? (
                         <span className="px-3 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-800">You're hosting</span>
                       ) : (
                         <button
-                          onClick={() => toggleJoin(evt.id)}
-                          className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 ${hasJoined ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-amber-500 text-white hover:bg-amber-600'}`}
+                          onClick={() => toggleJoin(evt)}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold shrink-0 ${
+                            isGoing ? 'bg-amber-100 text-amber-800 hover:bg-amber-200' : 'bg-amber-500 text-white hover:bg-amber-600'
+                          }`}
                         >
-                          {hasJoined ? 'Leave' : 'Join'}
+                          {isGoing ? 'Leave' : 'Join'}
                         </button>
                       ))}
                   </div>
@@ -309,7 +334,7 @@ export function EventsPanel({ currentUser, setAppView, triggerNotificationRefres
 
             <div>
               <label className="text-xs text-gray-500 font-bold uppercase block mb-1">Cover image (optional)</label>
-              <MediaInput value={form.image} onChange={(url) => setForm({ ...form, image: url })} placeholder="Image link or upload" />
+              <MediaInput value={form.image} onChange={(url) => setForm({ ...form, image: url })} allowLinks={false} placeholder="Upload from your device" />
             </div>
 
             <div>

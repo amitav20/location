@@ -3,9 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BusinessCategory } from '../../types';
-
-export const BIZ_CATEGORIES: BusinessCategory[] = [
+export const BIZ_CATEGORIES = [
   'Restaurant',
   'Grocery',
   'Fashion',
@@ -15,7 +13,9 @@ export const BIZ_CATEGORIES: BusinessCategory[] = [
   'Cafe',
   'Service Provider',
   'Local Vendor'
-];
+] as const;
+
+export type LegacyBusinessCategory = typeof BIZ_CATEGORIES[number];
 
 // Storefront "vibes" a business owner can pick for their shop page
 export interface ThemeConfig {

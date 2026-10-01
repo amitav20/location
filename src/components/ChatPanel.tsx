@@ -7,8 +7,24 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { toast, confirmAction } from './Toaster';
 import { formatListTime, formatMessageTime } from '../utils/time';
+import { ReportDialog } from './common/ReportDialog';
+import { Avatar, LoadMore, Spinner, distanceLabel, errorText } from './common/ui';
 import { ChatGroup, Message, User } from '../types';
-import { ArrowLeft, Group, LogOut, Mic, Paperclip, Plus, Search, Send, Square, Users, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Group,
+  LogOut,
+  Mic,
+  Paperclip,
+  Plus,
+  Search,
+  Send,
+  Square,
+  Trash2,
+  Users,
+  X
+} from 'lucide-react';
 
 interface ChatPanelProps {
   currentUser: User;
@@ -19,16 +35,18 @@ interface ChatPanelProps {
 }
 
 const POLL_MS = 4000;
-const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback);
 
 export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh, initialThreadId }: ChatPanelProps) {
   const [threads, setThreads] = useState<ChatGroup[]>([]);
   const [threadsLoaded, setThreadsLoaded] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(initialThreadId || null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [typedMessage, setTypedMessage] = useState<string>('');
   const [isSending, setIsSending] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  const [reportTarget, setReportTarget] = useState<{ type: 'message'; id: string } | null>(null);
 
   // Voice notes
   const [isRecording, setIsRecording] = useState(false);
@@ -38,7 +56,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
   // Group wizard
   const [showGroupWizard, setShowGroupWizard] = useState<boolean>(false);
   const [groupName, setGroupName] = useState<string>('');
-  const [neighbors, setNeighbors] = useState<(User & { distanceKm?: number })[]>([]);
+  const [neighbors, setNeighbors] = useState<User[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
 
@@ -58,16 +76,63 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     }
   };
 
-  // Only replace the message list when something actually changed, so polling doesn't disturb scrolling
-  const fetchMessages = async (threadId: string) => {
+  const fetchInitialMessages = async (threadId: string) => {
     try {
-      const list: Message[] = await api.getMessages(threadId);
-      setMessages((current) => {
-        const same = current.length === list.length && current[current.length - 1]?.id === list[list.length - 1]?.id;
-        return same ? current : list;
-      });
+      const page = await api.getMessages(threadId);
+      setMessages(page.items);
+      setOlderCursor(page.next);
+      api.markThreadRead(threadId).catch(() => undefined);
+      fetchThreads();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  // Poll for newest messages and merge without disrupting scroll
+  const pollNewMessages = async (threadId: string) => {
+    try {
+      const page = await api.getMessages(threadId);
+      let hasNew = false;
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const newItems = page.items.filter((m) => !existingIds.has(m.id));
+        if (newItems.length > 0) {
+          hasNew = true;
+          return [...prev, ...newItems];
+        }
+        return prev;
+      });
+      if (hasNew) {
+        api.markThreadRead(threadId).catch(() => undefined);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    if (!activeThreadId || !olderCursor || isLoadingOlder) return;
+    setIsLoadingOlder(true);
+    const scrollEl = scrollRef.current;
+    const oldScrollHeight = scrollEl ? scrollEl.scrollHeight : 0;
+    try {
+      const page = await api.getMessages(activeThreadId, olderCursor);
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const olderItems = page.items.filter((m) => !existingIds.has(m.id));
+        return [...olderItems, ...prev];
+      });
+      setOlderCursor(page.next);
+      // Keep scroll position stable
+      requestAnimationFrame(() => {
+        if (scrollEl) {
+          scrollEl.scrollTop = scrollEl.scrollHeight - oldScrollHeight;
+        }
+      });
+    } catch (err) {
+      toast.error(errorText(err, 'Could not load older messages.'));
+    } finally {
+      setIsLoadingOlder(false);
     }
   };
 
@@ -80,17 +145,18 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
   useEffect(() => {
     if (!activeThreadId) return;
     setMessages([]);
+    setOlderCursor(null);
     lastMessageIdRef.current = null;
     setShowMembers(false);
-    fetchMessages(activeThreadId).then(() => {
-      fetchThreads(); // unread counts
-      triggerNotificationRefresh();
-    });
-    const interval = setInterval(() => fetchMessages(activeThreadId), POLL_MS);
+
+    fetchInitialMessages(activeThreadId);
+    triggerNotificationRefresh();
+
+    const interval = setInterval(() => pollNewMessages(activeThreadId), POLL_MS);
     return () => clearInterval(interval);
   }, [activeThreadId]);
 
-  // Scroll down when a new message arrives, unless the user scrolled up to read older ones
+  // Scroll down when a new message arrives, unless the user scrolled up
   useEffect(() => {
     const last = messages[messages.length - 1];
     if (!last || last.id === lastMessageIdRef.current) return;
@@ -99,18 +165,18 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     const el = scrollRef.current;
     if (!el) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (firstLoad || nearBottom || last.senderId === currentUser.id) {
+    if (firstLoad || nearBottom || last.isMine || last.senderId === currentUser.id) {
       el.scrollTo({ top: el.scrollHeight, behavior: firstLoad ? 'auto' : 'smooth' });
     }
-  }, [messages]);
+  }, [messages, currentUser.id]);
 
-  /** Sends a message; returns false (after showing the error) if it failed. */
-  const send = async (content: string, file?: { mediaUrl: string; mediaType: string }): Promise<boolean> => {
-    if (!activeThreadId || (!content.trim() && !file)) return false;
+  /** Sends a message; returns false if it failed. */
+  const send = async (content: string, mediaUrl?: string): Promise<boolean> => {
+    if (!activeThreadId || (!content.trim() && !mediaUrl)) return false;
     setIsSending(true);
     try {
-      const msg = await api.sendMessage(activeThreadId, content.trim(), file);
-      setMessages((list) => [...list, msg]);
+      const msg = await api.sendMessage(activeThreadId, content.trim(), mediaUrl);
+      setMessages((list) => (list.some((m) => m.id === msg.id) ? list : [...list, msg]));
       fetchThreads();
       return true;
     } catch (err) {
@@ -126,7 +192,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     const text = typedMessage;
     if (!text.trim()) return;
     setTypedMessage('');
-    if (!(await send(text))) setTypedMessage(text); // keep what they typed if sending failed
+    if (!(await send(text))) setTypedMessage(text);
   };
 
   const handleAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -140,7 +206,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
       toast.error(errorText(err, 'Could not upload the file.'));
       return;
     }
-    if (await send(typedMessage, { mediaUrl: uploaded.url, mediaType: uploaded.kind === 'audio' ? 'voice' : uploaded.kind })) {
+    if (await send(typedMessage, uploaded.url)) {
       setTypedMessage('');
     }
   };
@@ -166,7 +232,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
         if (blob.size === 0) return;
         try {
           const uploaded = await api.uploadFile(blob);
-          await send('', { mediaUrl: uploaded.url, mediaType: 'voice' });
+          await send('', uploaded.url);
         } catch (err) {
           toast.error(errorText(err, 'Could not upload the voice note.'));
         }
@@ -182,7 +248,8 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
   const openGroupWizard = async () => {
     setShowGroupWizard(true);
     try {
-      setNeighbors(await api.discoverPeople({ range: 'global' }));
+      const res = await api.discoverPeople({ range: 'global' });
+      setNeighbors(res.items);
     } catch (err) {
       toast.error(errorText(err, 'Could not load people.'));
     }
@@ -219,6 +286,18 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
     }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!(await confirmAction('Delete this message for everyone?', 'Delete'))) return;
+    try {
+      await api.deleteMessage(msgId);
+      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      fetchThreads();
+      toast.success('Message deleted.');
+    } catch (err) {
+      toast.error(errorText(err, 'Could not delete message.'));
+    }
+  };
+
   const filteredNeighbors = neighbors.filter((n) => n.name.toLowerCase().includes(memberSearch.toLowerCase()));
   const pendingInitial = initialThreadId && threadsLoaded && !activeThread && activeThreadId === initialThreadId;
 
@@ -237,7 +316,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
 
         <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
           {!threadsLoaded ? (
-            <p className="text-center text-xs text-gray-400 py-12">Loading...</p>
+            <Spinner label="Loading chats..." />
           ) : threads.length === 0 ? (
             <p className="text-center text-xs text-gray-500 py-12 px-4">No conversations yet. Start one from someone's profile or the People page.</p>
           ) : (
@@ -248,7 +327,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                 className={`w-full p-4 flex gap-3 items-center text-left hover:bg-teal-50/40 ${activeThreadId === t.id ? 'bg-teal-50' : ''}`}
               >
                 <span className="relative shrink-0">
-                  <img src={t.coverPhoto} alt="" className="w-11 h-11 rounded-xl object-cover bg-gray-100" referrerPolicy="no-referrer" />
+                  <Avatar src={t.coverPhoto} name={t.name} className="w-11 h-11 rounded-xl text-sm" />
                   {!!t.unreadCount && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-[11px] font-bold text-white min-w-5 h-5 px-1 rounded-full flex items-center justify-center">
                       {t.unreadCount}
@@ -281,7 +360,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                   className="flex items-center gap-3 min-w-0 text-left"
                   onClick={() => (activeThread.isGroup ? setShowMembers(!showMembers) : activeThread.otherUserId && setAppView('profile', activeThread.otherUserId))}
                 >
-                  <img src={activeThread.coverPhoto} alt="" className="w-9 h-9 rounded-xl object-cover bg-gray-50 shrink-0" referrerPolicy="no-referrer" />
+                  <Avatar src={activeThread.coverPhoto} name={activeThread.name} className="w-9 h-9 rounded-xl text-xs shrink-0" />
                   <span className="min-w-0">
                     <span className="font-bold text-gray-800 text-sm block truncate">{activeThread.name}</span>
                     <span className="text-[11px] text-gray-500 font-semibold block">
@@ -310,7 +389,7 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                       onClick={() => m.id !== currentUser.id && setAppView('profile', m.id)}
                       className="w-full flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-50 text-left"
                     >
-                      <img src={m.profilePhoto} alt="" className="w-7 h-7 rounded-full object-cover" referrerPolicy="no-referrer" />
+                      <Avatar src={m.profilePhoto} name={m.name} className="w-7 h-7 rounded-full text-[10px]" />
                       <span className="text-sm text-gray-700 truncate">{m.id === currentUser.id ? 'You' : m.name}</span>
                     </button>
                   ))}
@@ -319,18 +398,42 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
             </div>
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px]">
+              {olderCursor && (
+                <div className="text-center pb-2">
+                  <button
+                    onClick={loadOlderMessages}
+                    disabled={isLoadingOlder}
+                    className="px-3 py-1.5 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50 shadow-xs"
+                  >
+                    {isLoadingOlder ? 'Loading older messages...' : 'Load older messages'}
+                  </button>
+                </div>
+              )}
+
               {messages.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-12">No messages yet. Say hello!</p>
               ) : (
                 messages.map((m) => {
-                  const isMe = m.senderId === currentUser.id;
+                  if (m.type === 'system') {
+                    return (
+                      <div key={m.id} className="text-center my-2 text-xs text-gray-400 italic font-medium">
+                        {m.content}
+                      </div>
+                    );
+                  }
+
+                  const isMe = m.isMine || m.senderId === currentUser.id;
                   return (
-                    <div key={m.id} className={`flex gap-2.5 items-end max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : ''}`}>
-                      {!isMe && <img src={m.senderPhoto} alt="" className="w-7 h-7 rounded-lg object-cover bg-gray-100 shrink-0" referrerPolicy="no-referrer" />}
+                    <div key={m.id} className={`group flex gap-2.5 items-end max-w-[85%] ${isMe ? 'ml-auto flex-row-reverse' : ''}`}>
+                      {!isMe && (
+                        <button onClick={() => setAppView('profile', m.senderId)} className="shrink-0">
+                          <Avatar src={m.senderPhoto} name={m.senderName} className="w-7 h-7 rounded-lg text-[10px]" />
+                        </button>
+                      )}
                       <div className="space-y-1 min-w-0">
                         {!isMe && activeThread.isGroup && <span className="text-[11px] font-bold text-gray-500 block">{m.senderName}</span>}
                         <div
-                          className={`p-3 rounded-2xl text-sm leading-relaxed shadow-xs break-words ${
+                          className={`relative p-3 rounded-2xl text-sm leading-relaxed shadow-xs break-words ${
                             isMe ? 'bg-gradient-to-br from-teal-500 to-teal-600 text-white rounded-br-md' : 'bg-white text-gray-700 rounded-bl-md border border-gray-100'
                           }`}
                         >
@@ -347,7 +450,27 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                             </div>
                           )}
                         </div>
-                        <span className={`text-[11px] text-gray-400 block ${isMe ? 'text-right' : ''}`}>{formatMessageTime(m.createdAt)}</span>
+
+                        <div className={`flex items-center gap-1.5 text-[11px] text-gray-400 ${isMe ? 'justify-end' : ''}`}>
+                          <span>{formatMessageTime(m.createdAt)}</span>
+                          {isMe ? (
+                            <button
+                              onClick={() => handleDeleteMessage(m.id)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 p-0.5"
+                              title="Delete message"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setReportTarget({ type: 'message', id: m.id })}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500 p-0.5"
+                              title="Report message"
+                            >
+                              <AlertTriangle size={12} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
@@ -361,11 +484,11 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                 onClick={() => fileRef.current?.click()}
                 disabled={isSending || isRecording}
                 className="w-10 h-10 rounded-xl bg-gray-50 text-gray-500 hover:bg-teal-50 hover:text-teal-700 flex items-center justify-center disabled:opacity-50 shrink-0"
-                title="Send a photo or video"
+                title="Send a photo, video or audio"
               >
                 <Paperclip size={18} />
               </button>
-              <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" onChange={handleAttach} className="hidden" />
+              <input ref={fileRef} type="file" accept="image/*,video/mp4,video/webm,video/quicktime,audio/*" onChange={handleAttach} className="hidden" />
               <button
                 type="button"
                 onClick={toggleRecording}
@@ -446,9 +569,9 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
                         }
                         className="accent-teal-600"
                       />
-                      <img src={n.profilePhoto} alt="" className="w-7 h-7 rounded-full object-cover" referrerPolicy="no-referrer" />
+                      <Avatar src={n.profilePhoto} name={n.name} className="w-7 h-7 rounded-full text-[10px]" />
                       <span className="text-sm text-gray-700 flex-1 truncate">{n.name}</span>
-                      {n.distanceKm !== undefined && <span className="text-[11px] text-gray-400">{n.distanceKm} km</span>}
+                      {n.distanceKm !== undefined && <span className="text-[11px] text-gray-400">{distanceLabel(n.distanceKm)}</span>}
                     </label>
                   ))
                 )}
@@ -461,6 +584,8 @@ export function ChatPanel({ currentUser, setAppView, triggerNotificationRefresh,
           </form>
         </div>
       )}
+
+      {reportTarget && <ReportDialog target={reportTarget} onClose={() => setReportTarget(null)} />}
     </div>
   );
 }
