@@ -9,6 +9,7 @@ import { toast, confirmAction } from './Toaster';
 import { BusinessDashboard } from './business/BusinessDashboard';
 import { ShopView } from './business/ShopView';
 import { useCart } from './business/useCart';
+import { CheckoutDialog } from './business/CheckoutDialog';
 import { Avatar, SafeImage, Spinner, distanceLabel, money, errorText } from './common/ui';
 import { Business, BusinessCategoryItem, Order, OrderStatus, Product, User } from '../types';
 import {
@@ -35,6 +36,7 @@ interface BusinessPanelProps {
 const STATUS_STYLES: Record<OrderStatus, string> = {
   pending: 'bg-amber-100 text-amber-700',
   processing: 'bg-sky-100 text-sky-700',
+  ready: 'bg-emerald-100 text-emerald-700',
   shipped: 'bg-indigo-100 text-indigo-700',
   delivered: 'bg-teal-100 text-teal-700',
   cancelled: 'bg-gray-200 text-gray-600'
@@ -71,6 +73,7 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
   const [orderMessage, setOrderMessage] = useState<string>('');
   const [orderError, setOrderError] = useState<string>('');
   const [isCheckingOut, setIsCheckingOut] = useState<boolean>(false);
+  const [showCheckoutDialog, setShowCheckoutDialog] = useState<boolean>(false);
 
   useEffect(() => {
     api.getCategories().then(setCategories).catch(console.error);
@@ -417,11 +420,15 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
             ) : (
               <div className="space-y-3">
                 {cartItems.map((item) => (
-                  <div key={item.product.id} className="flex gap-3 bg-gray-50 p-3 rounded-2xl items-center border border-gray-100">
+                  <div key={item.id || item.product.id} className="flex gap-3 bg-gray-50 p-3 rounded-2xl items-center border border-gray-100">
                     <SafeImage src={item.product.images[0]} alt="" className="w-12 h-12 rounded-xl object-cover bg-white shrink-0" />
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-sm text-gray-800 truncate">{item.product.name}</h4>
-                      <span className="text-xs text-gray-500">{money(item.product.price)} each</span>
+                      {item.variant && <p className="text-[11px] text-teal-700 font-semibold">{item.variant.title}</p>}
+                      {item.modifiers && item.modifiers.length > 0 && (
+                        <p className="text-[10px] text-gray-400 truncate">+{item.modifiers.map((m) => m.name).join(', ')}</p>
+                      )}
+                      <span className="text-xs text-gray-500">{money(item.unitPrice || item.product.price)} each</span>
                       {item.problem && (
                         <p className="text-[11px] text-rose-500 font-bold">
                           {item.problem === 'out_of_stock' ? 'Sold out' : item.problem === 'not_enough_stock' ? 'Not enough stock' : 'Unavailable'}
@@ -429,12 +436,16 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       )}
                     </div>
                     <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl">
-                      <button onClick={() => setQuantity(item.product.id, item.quantity - 1)} className="p-1.5 text-gray-600 hover:text-teal-700" aria-label="Decrease quantity">
+                      <button
+                        onClick={() => bag.updateLine ? bag.updateLine(item.id, item.quantity - 1) : setQuantity(item.product.id, item.quantity - 1)}
+                        className="p-1.5 text-gray-600 hover:text-teal-700"
+                        aria-label="Decrease quantity"
+                      >
                         <Minus size={14} />
                       </button>
                       <span className="w-6 text-center text-sm font-semibold">{item.quantity}</span>
                       <button
-                        onClick={() => setQuantity(item.product.id, item.quantity + 1)}
+                        onClick={() => bag.updateLine ? bag.updateLine(item.id, item.quantity + 1) : setQuantity(item.product.id, item.quantity + 1)}
                         disabled={item.quantity >= Math.min(99, item.product.stock)}
                         className="p-1.5 text-gray-600 hover:text-teal-700 disabled:opacity-30"
                         aria-label="Increase quantity"
@@ -443,7 +454,11 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                       </button>
                     </div>
                     <span className="text-sm font-bold text-teal-700 w-16 text-right">{money(item.lineTotal)}</span>
-                    <button onClick={() => removeFromCart(item.product.id)} className="text-gray-400 hover:text-red-600 p-1" aria-label="Remove">
+                    <button
+                      onClick={() => bag.removeLine ? bag.removeLine(item.id) : removeFromCart(item.product.id)}
+                      className="text-gray-400 hover:text-red-600 p-1"
+                      aria-label="Remove"
+                    >
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -461,26 +476,12 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
                     <span className="text-teal-700 text-lg">{money(cartTotal)}</span>
                   </div>
 
-                  <div className="space-y-1 pt-2">
-                    <label className="text-xs text-gray-500 font-bold uppercase block">Delivery address</label>
-                    <input
-                      type="text"
-                      placeholder="Street, number, city"
-                      value={checkoutAddress}
-                      maxLength={300}
-                      onChange={(e) => setCheckoutAddress(e.target.value)}
-                      className="w-full text-sm rounded-xl border border-gray-200 p-3 outline-none focus:ring-1 focus:ring-teal-500"
-                    />
-                  </div>
-
-                  {orderError && <p className="text-sm text-rose-600 font-semibold bg-rose-50 px-3 py-2 rounded-xl">{orderError}</p>}
-
                   <button
-                    onClick={handleCheckout}
+                    onClick={() => setShowCheckoutDialog(true)}
                     disabled={isCheckingOut || !canCheckout}
-                    className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-sm"
+                    className="w-full py-3 bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold shadow-sm cursor-pointer"
                   >
-                    {isCheckingOut ? 'Placing order...' : 'Place Order'}
+                    Proceed to Checkout
                   </button>
                 </div>
               </div>
@@ -557,6 +558,20 @@ export function BusinessPanel({ currentUser, setAppView, triggerNotificationRefr
       )}
 
       {activeSubTab === 'dashboard' && <BusinessDashboard currentUser={currentUser} triggerNotificationRefresh={triggerNotificationRefresh} />}
+
+      {showCheckoutDialog && bag.cart && (
+        <CheckoutDialog
+          cart={bag.cart}
+          onClose={() => setShowCheckoutDialog(false)}
+          onOrderSuccess={(placedOrders) => {
+            setShowCheckoutDialog(false);
+            bag.clearCart();
+            setOrderMessage(`Order placed! ${placedOrders.length} order(s) created.`);
+            fetchOrders();
+            triggerNotificationRefresh();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -30,16 +30,43 @@ export function useCart() {
     fetchCart();
   }, [fetchCart]);
 
-  const addToCart = async (product: Product, qty = 1): Promise<boolean> => {
+  const addToCart = async (
+    product: Product,
+    qty = 1,
+    options?: { variantId?: string; modifierIds?: string[] }
+  ): Promise<boolean> => {
     try {
-      const currentQty = cart?.shops.flatMap((s) => s.items).find((i) => i.product.id === product.id)?.quantity || 0;
-      const updated = await api.setCartQuantity(product.id, currentQty + qty, promoCode);
+      let updated: Cart;
+      if (options?.variantId || (options?.modifierIds && options.modifierIds.length > 0)) {
+        updated = await api.addCartItem(product.id, qty, options, promoCode);
+      } else {
+        const currentQty = cart?.shops.flatMap((s) => s.items).find((i) => i.product.id === product.id && !i.variant && (!i.modifiers || i.modifiers.length === 0))?.quantity || 0;
+        updated = await api.setCartQuantity(product.id, currentQty + qty, promoCode);
+      }
       setCart(updated);
       toast.success(`${product.name} added to your bag.`);
       return true;
     } catch (err: any) {
       toast.error(err.message || 'Could not add to bag.');
       return false;
+    }
+  };
+
+  const updateLine = async (lineId: string, quantity: number) => {
+    try {
+      const updated = await api.updateCartLine(lineId, quantity, promoCode);
+      setCart(updated);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not update quantity.');
+    }
+  };
+
+  const removeLine = async (lineId: string) => {
+    try {
+      const updated = await api.removeCartLine(lineId, promoCode);
+      setCart(updated);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not remove item.');
     }
   };
 
@@ -108,6 +135,8 @@ export function useCart() {
     addToCart,
     setQuantity,
     removeFromCart,
+    updateLine,
+    removeLine,
     clearCart,
     refresh: () => fetchCart(),
     isLoading

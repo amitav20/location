@@ -12,6 +12,8 @@ import { Business, BusinessOffer, Product, Review, User } from '../../types';
 import { getThemeClasses } from './theme';
 import { CartState } from './useCart';
 import { DAYS, formatDayHours } from './openingHours';
+import { ProductDetailModal } from './ProductDetailModal';
+import { CheckoutDialog } from './CheckoutDialog';
 import {
   AlertTriangle,
   Building,
@@ -71,6 +73,8 @@ export function ShopView({
   const [newReviewText, setNewReviewText] = useState<string>('');
   const [promoCodeInput, setPromoCodeInput] = useState<string>('');
   const [showReport, setShowReport] = useState(false);
+  const [selectedModalProduct, setSelectedModalProduct] = useState<Product | null>(null);
+  const [showCheckoutDialog, setShowCheckoutDialog] = useState<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,42 +286,71 @@ export function ShopView({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {filteredProducts.map((prod) => (
-                    <div key={prod.id} className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs flex flex-col p-4 gap-3">
-                      <div className="h-36 bg-gray-100 rounded-xl overflow-hidden relative">
-                        <SafeImage
-                          src={prod.images?.[0]}
-                          alt={prod.name}
-                          className="w-full h-full object-cover"
-                          fallback={<ShoppingBag size={32} className="text-gray-300" />}
-                        />
-                        {prod.stock <= 0 && (
-                          <span className="absolute top-2 left-2 bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
-                            Sold out
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <h4 className="font-bold text-sm text-gray-800">{prod.name}</h4>
-                            <span className="text-sm font-black text-teal-700">{money(prod.price)}</span>
+                  {filteredProducts.map((prod) => {
+                    const hasVariants = prod.variants && prod.variants.length > 0;
+                    const hasModifiers = prod.modifierGroups && prod.modifierGroups.length > 0;
+                    const isConfigurable = hasVariants || hasModifiers;
+
+                    return (
+                      <div
+                        key={prod.id}
+                        onClick={() => setSelectedModalProduct(prod)}
+                        className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-xs hover:shadow-md transition-all flex flex-col p-4 gap-3 cursor-pointer group"
+                      >
+                        <div className="h-36 bg-gray-100 rounded-xl overflow-hidden relative">
+                          <SafeImage
+                            src={prod.images?.[0]}
+                            alt={prod.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            fallback={<ShoppingBag size={32} className="text-gray-300" />}
+                          />
+                          {prod.stock <= 0 && (
+                            <span className="absolute top-2 left-2 bg-rose-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
+                              Sold out
+                            </span>
+                          )}
+                          {prod.stock > 0 && prod.stock <= 5 && (
+                            <span className="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
+                              Only {prod.stock} left
+                            </span>
+                          )}
+                          {isConfigurable && (
+                            <span className="absolute bottom-2 right-2 bg-slate-900/80 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-0.5 rounded-md">
+                              Options available
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 flex flex-col justify-between">
+                          <div>
+                            <div className="flex justify-between items-start gap-1">
+                              <h4 className="font-bold text-sm text-gray-800 group-hover:text-teal-700 transition-colors">{prod.name}</h4>
+                              <span className="text-sm font-black text-teal-700">{money(prod.price)}</span>
+                            </div>
+                            {prod.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{prod.description}</p>}
                           </div>
-                          {prod.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{prod.description}</p>}
-                        </div>
-                        <div className="pt-3 border-t border-gray-100 mt-2 flex items-center justify-between">
-                          <span className="text-[11px] text-gray-400">{prod.stock > 0 ? `${prod.stock} in stock` : 'Out of stock'}</span>
-                          <button
-                            onClick={() => handleAddToCart(prod)}
-                            disabled={prod.stock <= 0}
-                            className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold"
-                          >
-                            Add to Bag
-                          </button>
+                          <div className="pt-3 border-t border-gray-100 mt-2 flex items-center justify-between">
+                            <span className="text-[11px] text-gray-400">
+                              {prod.stock > 0 ? `${prod.stock} in stock` : 'Out of stock'}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isConfigurable) {
+                                  setSelectedModalProduct(prod);
+                                } else {
+                                  handleAddToCart(prod);
+                                }
+                              }}
+                              disabled={prod.stock <= 0 && !isConfigurable}
+                              className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold"
+                            >
+                              {isConfigurable ? 'Choose Options' : prod.stock <= 0 ? 'Notify Me' : 'Add to Bag'}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -416,7 +449,14 @@ export function ShopView({
                         <div className="flex items-center gap-2">
                           <Avatar src={rev.userPhoto} name={rev.userName} className="w-7 h-7 rounded-full text-[10px]" />
                           <div>
-                            <span className="font-bold text-xs text-gray-800 block">{rev.userName}</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-xs text-gray-800 block">{rev.userName}</span>
+                              {rev.isVerified && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                                  Verified Buyer
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-gray-400">{new Date(rev.createdAt).toLocaleDateString()}</span>
                           </div>
                         </div>
@@ -433,6 +473,12 @@ export function ShopView({
                         </div>
                       </div>
                       <p className="text-xs text-gray-700 leading-relaxed">{rev.comment}</p>
+                      {rev.reply && (
+                        <div className="mt-2 p-2.5 rounded-xl bg-teal-50/70 border border-teal-100 text-xs">
+                          <div className="font-bold text-teal-800">Response from store:</div>
+                          <p className="text-gray-700 mt-0.5">{rev.reply.body}</p>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -516,10 +562,18 @@ export function ShopView({
               <div className="space-y-3">
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {cartItems.map((item) => (
-                    <div key={item.product.id} className="flex justify-between items-center text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl">
+                    <div key={item.id || item.product.id} className="flex justify-between items-start text-xs p-2.5 bg-gray-50 border border-gray-200 rounded-xl">
                       <div className="min-w-0 pr-2 flex-1">
                         <p className="font-bold text-gray-800 truncate">{item.product.name}</p>
-                        <p className="text-[11px] text-gray-500">Qty: {item.quantity} · {money(item.product.price)} ea</p>
+                        {item.variant && (
+                          <p className="text-[11px] text-teal-700 font-semibold">{item.variant.title}</p>
+                        )}
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <p className="text-[10px] text-gray-400 truncate">
+                            +{item.modifiers.map((m) => m.name).join(', ')}
+                          </p>
+                        )}
+                        <p className="text-[11px] text-gray-500 mt-0.5">Qty: {item.quantity} · {money(item.unitPrice || item.product.price)} ea</p>
                         {item.problem && (
                           <span className="text-[10px] text-rose-500 font-bold block mt-0.5">
                             {item.problem === 'out_of_stock' ? 'Out of stock' : item.problem === 'not_enough_stock' ? 'Not enough stock' : 'Unavailable'}
@@ -529,7 +583,7 @@ export function ShopView({
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-gray-900">{money(item.lineTotal)}</span>
                         <button
-                          onClick={() => removeFromCart(item.product.id)}
+                          onClick={() => bag.removeLine ? bag.removeLine(item.id) : removeFromCart(item.product.id)}
                           className="text-gray-400 hover:text-rose-600 p-1 rounded-md"
                           title="Remove item"
                         >
@@ -584,20 +638,13 @@ export function ShopView({
                   {orderError && <p className="text-[11px] text-rose-600 font-semibold bg-rose-50 p-2 rounded-xl">{orderError}</p>}
 
                   <div className="space-y-2 pt-2">
-                    <input
-                      type="text"
-                      placeholder="Delivery or pickup address..."
-                      value={checkoutAddress}
-                      onChange={(e) => setCheckoutAddress(e.target.value)}
-                      className="w-full text-xs rounded-xl bg-gray-50 border border-gray-200 p-2.5 outline-none focus:bg-white focus:ring-1 focus:ring-teal-500"
-                    />
                     <button
-                      onClick={handleCheckout}
+                      onClick={() => setShowCheckoutDialog(true)}
                       disabled={isCheckingOut || !canCheckout}
-                      className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5"
+                      className="w-full py-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <CreditCard size={14} />
-                      {isCheckingOut ? 'Placing order...' : 'Place Order'}
+                      Proceed to Checkout
                     </button>
                   </div>
                 </div>
@@ -606,6 +653,26 @@ export function ShopView({
           </div>
         </div>
       </div>
+
+      {selectedModalProduct && (
+        <ProductDetailModal
+          product={selectedModalProduct}
+          onClose={() => setSelectedModalProduct(null)}
+          onAddToCart={(prod, qty, opts) => bag.addToCart(prod, qty, opts)}
+        />
+      )}
+
+      {showCheckoutDialog && bag.cart && (
+        <CheckoutDialog
+          cart={bag.cart}
+          onClose={() => setShowCheckoutDialog(false)}
+          onOrderSuccess={(orders) => {
+            setShowCheckoutDialog(false);
+            bag.clearCart();
+            toast.success(`Order placed! ${orders.length} order(s) created.`);
+          }}
+        />
+      )}
 
       {showReport && <ReportDialog target={{ type: 'business', id: selectedShop.id }} onClose={() => setShowReport(false)} />}
     </div>

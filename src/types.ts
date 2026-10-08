@@ -236,6 +236,97 @@ export type OpeningHours = Partial<Record<DayKey, [string, string][]>>;
 
 export type ThemeVibe = 'minimal' | 'vintage' | 'neon' | 'organic';
 
+export type StaffRole = 'owner' | 'manager' | 'cashier' | 'kitchen' | 'driver';
+
+export type Permission =
+  | 'manage'
+  | 'staff'
+  | 'finance'
+  | 'ads'
+  | 'settings'
+  | 'catalog'
+  | 'offers'
+  | 'marketing'
+  | 'chat'
+  | 'reviews'
+  | 'orders'
+  | 'refunds'
+  | 'kitchen'
+  | 'scan'
+  | 'deliveries'
+  | 'deliver'
+  | 'bookings'
+  | 'customers'
+  | 'analytics';
+
+export interface StaffMember {
+  id: string;
+  role: StaffRole;
+  status: 'active' | 'invited';
+  user?: MemberSummary;
+  invitedEmail?: string;
+  invitedPhone?: string;
+  inviteUrl?: string;
+  createdAt: string;
+}
+
+export interface StaffInvite {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string;
+  role: StaffRole;
+  invitedBy?: string;
+  token?: string;
+  inviteUrl?: string;
+  createdAt: string;
+}
+
+export interface TaxRate {
+  label: string;
+  ratePercent: number;
+}
+
+export interface ShopSettings {
+  fulfilment: {
+    delivery: boolean;
+    pickup: boolean;
+    dineIn: boolean;
+  };
+  payments: {
+    cash: boolean;
+    online: boolean;
+  };
+  taxes: TaxRate[];
+  taxInclusive: boolean;
+  packagingFee: {
+    delivery: number;
+    pickup: number;
+    dineIn: number;
+  };
+  scheduling: {
+    enabled: boolean;
+    slotMinutes: number;
+    maxOrdersPerSlot: number;
+    advanceDays: number;
+    leadMinutes: number;
+    asap: boolean;
+  };
+  lowStockThreshold: number;
+  chat: {
+    awayEnabled: boolean;
+    awayMessage: string;
+  };
+  crm: {
+    vipOrders: number;
+    vipSpend: number;
+    lapsedDays: number;
+    winback: { enabled: boolean; discountPercent: number; validDays: number };
+    birthday: { enabled: boolean; discountPercent: number; validDays: number };
+    anniversary: { enabled: boolean; discountPercent: number; validDays: number };
+  };
+}
+
 export interface Business {
   id: string;
   slug: string;
@@ -252,6 +343,7 @@ export interface Business {
   latitude: number;
   longitude: number;
   phone: string;
+  whatsapp?: string;
   email: string;
   website: string;
   isVerified: boolean;
@@ -268,6 +360,46 @@ export interface Business {
   twitterUrl: string;
   openingHours: OpeningHours | null;
   activeOffers?: BusinessOffer[];
+  timezone?: string;
+  isOpenNow?: boolean;
+  ordering?: {
+    fulfilment: { delivery: boolean; pickup: boolean; dineIn: boolean };
+    scheduling: boolean;
+    asap: boolean;
+    payments: { cash: boolean; online: boolean };
+  };
+  loyalty?: { type: string; summary: string } | null;
+  hasBookings?: boolean;
+  myRole?: StaffRole | null;
+  myPermissions?: Permission[];
+}
+
+export interface ProductVariant {
+  id: string;
+  name: string;
+  options: Record<string, string>;
+  sku?: string;
+  barcode?: string;
+  price: number;
+  stock: number;
+  inStock: boolean;
+  isActive: boolean;
+}
+
+export interface Modifier {
+  id: string;
+  name: string;
+  price: number;
+  isActive: boolean;
+}
+
+export interface ModifierGroup {
+  id: string;
+  name: string;
+  minSelect: number;
+  maxSelect: number;
+  required: boolean;
+  modifiers: Modifier[];
 }
 
 export interface Product {
@@ -278,9 +410,26 @@ export interface Product {
   name: string;
   description: string;
   price: number;
+  priceRange?: { min: number; max: number } | null;
+  compareAtPrice?: number | null;
+  discountPercent?: number | null;
+  brand?: string;
+  sku?: string;
+  barcode?: string;
+  fits?: string[];
   images: string[];
+  imageIds?: string[];
   category: string;
   stock: number;
+  inStock?: boolean;
+  soldOut?: boolean;
+  lowStockThreshold?: number | null;
+  soldOutBehavior?: 'disable' | 'hide';
+  hasVariants?: boolean;
+  options?: { name: string; values: string[] }[];
+  variants?: ProductVariant[];
+  modifierGroups?: ModifierGroup[];
+  notifyMe?: boolean;
   isActive: boolean;
   createdAt: string;
   distanceKm?: number;
@@ -298,6 +447,11 @@ export interface BusinessOffer {
   isActive: boolean;
 }
 
+export interface ReviewReply {
+  body: string;
+  repliedAt: string;
+}
+
 export interface Review {
   id: string;
   userId: string;
@@ -305,48 +459,127 @@ export interface Review {
   userPhoto: string;
   rating: number;
   comment: string;
+  isVerified?: boolean;
+  reply?: ReviewReply | null;
   isMine: boolean;
   createdAt: string;
 }
 
 // ---------- Cart & orders ----------
 
-export type CartProblem = 'unavailable' | 'out_of_stock' | 'not_enough_stock';
+export type Fulfilment = 'delivery' | 'pickup' | 'dine_in';
+export type CartProblem = 'unavailable' | 'out_of_stock' | 'not_enough_stock' | 'choose_options';
+
+export interface CartModifierChoice {
+  id: string;
+  group?: string;
+  name: string;
+  price: number;
+}
 
 export interface CartLine {
+  id?: string;
   product: Product;
+  variant?: { id: string; name: string; options: Record<string, string> } | null;
+  modifiers?: CartModifierChoice[];
   quantity: number;
+  unitPrice?: number;
   lineTotal: number;
   problem: CartProblem | null;
 }
 
+export interface OrderCharge {
+  type: string;
+  label: string;
+  amount: number;
+  isIncluded: boolean;
+}
+
+export interface CartShopDelivery {
+  available: boolean;
+  reason?: string;
+  zone?: string;
+  fee: number;
+  minOrder: number;
+  distanceKm?: number;
+}
+
 export interface CartShop {
-  business: { id: string; slug: string; name: string };
+  business: {
+    id: string;
+    slug: string;
+    name: string;
+    fulfilment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+    payments?: { cash: boolean; online: boolean };
+    scheduling?: boolean;
+  };
   items: CartLine[];
   subtotal: number;
   discountPercent: number;
   discount: number;
+  charges?: OrderCharge[];
+  chargesTotal?: number;
   total: number;
+  delivery?: CartShopDelivery | null;
+  problem?: string | null;
+  problemMessage?: string | null;
 }
 
 export interface Cart {
+  fulfilment?: Fulfilment;
   shops: CartShop[];
   itemsCount: number;
   subtotal: number;
   discount: number;
+  chargesTotal?: number;
   total: number;
   canCheckout: boolean;
+  onlinePaymentAvailable?: boolean;
   promo: { code: string; valid: boolean; discountPercent: number | null; message: string } | null;
 }
 
-export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus = 'pending' | 'processing' | 'ready' | 'shipped' | 'delivered' | 'cancelled';
 
 export interface OrderItem {
+  id?: string;
   productId: string | null;
+  variantId?: string | null;
   productName: string;
+  variantName?: string;
+  displayName?: string;
+  sku?: string;
+  modifiers?: { id: string; name: string; price: number }[];
   price: number;
   quantity: number;
   lineTotal: number;
+}
+
+export type PaymentMethod = 'cash' | 'online';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'expired' | 'refunded';
+
+export interface OrderPayment {
+  method: PaymentMethod;
+  status: PaymentStatus;
+  paymentId?: string;
+  paidAt?: string;
+  refundedAmount?: number;
+}
+
+export interface OrderRefund {
+  id: string;
+  amount: number;
+  reason: string;
+  method: string;
+  status: string;
+  restocked: boolean;
+  createdAt: string;
+}
+
+export interface OrderArrival {
+  status: 'on_my_way' | 'arrived';
+  etaAt?: string;
+  arrivedAt?: string;
+  vehicle?: { color?: string; model?: string; plate?: string };
 }
 
 export interface Order {
@@ -355,21 +588,427 @@ export interface Order {
   businessId: string;
   businessName: string;
   businessSlug?: string;
+  businessPhone?: string;
+  businessAddress?: string;
+  businessLocation?: { latitude: number; longitude: number } | null;
   customerId?: string;
   customerName?: string;
+  contactPhone?: string;
   items: OrderItem[];
+  itemsCount?: number;
   subtotalAmount: number;
   discountPercent: number;
   discountAmount: number;
+  charges: OrderCharge[];
+  chargesTotal?: number;
   promoCode: string;
   totalAmount: number;
   status: OrderStatus;
+  fulfilment: Fulfilment;
+  payment: OrderPayment;
+  refunds?: OrderRefund[];
+  commissionAmount?: number;
   address: string;
+  deliveryLocation?: { latitude: number; longitude: number } | null;
+  scheduledFor?: string;
+  tableLabel?: string;
+  handoverCode?: string;
+  handoverQr?: string;
+  driver?: MemberSummary | null;
+  driverLocation?: { latitude: number; longitude: number; at?: string } | null;
+  deliveryProof?: any;
+  arrival?: OrderArrival | null;
   notes: string;
   canCancel: boolean;
   nextStatuses: OrderStatus[];
   history: { status: OrderStatus; note: string; at: string }[];
+  cancelledAt?: string;
   createdAt: string;
+}
+
+// ---------- Shop Features: Extras ----------
+
+export interface PaymentIntent {
+  id: string;
+  gateway: string;
+  status: PaymentStatus;
+  amount: number;
+  currency: string;
+  checkout: Record<string, any>;
+  expiresAt?: string;
+}
+
+export interface DeliveryZone {
+  id?: string;
+  name: string;
+  type: 'radius' | 'polygon';
+  minKm?: number;
+  maxKm?: number;
+  polygon?: [number, number][];
+  fee: number;
+  minOrder: number;
+  isActive?: boolean;
+}
+
+export interface DeliveryQuote {
+  available: boolean;
+  fee: number;
+  minOrder: number;
+  reason?: string;
+  message?: string;
+  pickupAvailable: boolean;
+}
+
+export interface TimeSlot {
+  start: string;
+  end: string;
+  remaining: number;
+  isAvailable: boolean;
+}
+
+export interface TrackingMilestone {
+  status: OrderStatus;
+  label: string;
+  at?: string;
+  isDone: boolean;
+}
+
+export interface Tracking {
+  orderId: string;
+  status: OrderStatus;
+  milestones: TrackingMilestone[];
+  shop: { name: string; address: string; phone?: string; latitude: number; longitude: number };
+  destination?: { address: string; latitude?: number; longitude?: number };
+  driver?: MemberSummary | null;
+  driverLocation?: { latitude: number; longitude: number; at?: string } | null;
+  etaMinutes?: number | null;
+  courier?: { name: string; trackingUrl?: string } | null;
+  realtimeChannel?: string;
+}
+
+export interface CannedResponse {
+  id: string;
+  shortcut: string;
+  title: string;
+  content: string;
+}
+
+export interface Announcement {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string;
+  type: 'news' | 'restock' | 'seasonal' | 'offer';
+  body: string;
+  isPriority: boolean;
+  mediaUrls: string[];
+  likesCount: number;
+  commentsCount: number;
+  hasLiked?: boolean;
+  createdAt: string;
+}
+
+export interface AnnouncementComment {
+  id: string;
+  announcementId: string;
+  user: MemberSummary;
+  content: string;
+  createdAt: string;
+}
+
+export interface LoyaltyProgram {
+  isActive: boolean;
+  type: 'stamps' | 'spend';
+  targetStamps?: number;
+  targetSpend?: number;
+  rewardText: string;
+  rewardDiscountPercent?: number;
+  rewardDiscountAmount?: number;
+  minOrder?: number;
+  validityDays?: number;
+  summary: string;
+}
+
+export interface LoyaltyRewardCode {
+  code: string;
+  label: string;
+  expiresAt: string;
+}
+
+export interface LoyaltyCard {
+  businessId: string;
+  businessName: string;
+  businessLogo?: string;
+  currentStamps: number;
+  targetStamps: number;
+  currentSpend: number;
+  targetSpend: number;
+  progressPercent: number;
+  qrPayload: string;
+  unusedRewards: LoyaltyRewardCode[];
+}
+
+export type CustomerTier = 'new' | 'regular' | 'vip' | 'lapsed';
+
+export interface CustomerRow {
+  id: string;
+  name: string;
+  username?: string;
+  profilePhoto?: string;
+  tier: CustomerTier;
+  ordersCount: number;
+  totalSpent: number;
+  firstOrderAt?: string;
+  lastOrderAt?: string;
+}
+
+export interface RetentionStats {
+  winbackSent: number;
+  winbackUsed: number;
+  birthdaySent: number;
+  birthdayUsed: number;
+  anniversarySent: number;
+  anniversaryUsed: number;
+}
+
+export interface ShopTable {
+  id: string;
+  label: string;
+  type: 'table' | 'counter';
+  code: string;
+  qrUrl: string;
+  isActive: boolean;
+}
+
+export interface ScanResult {
+  type: 'product' | 'order' | 'loyalty_card' | 'unknown';
+  product?: Product;
+  order?: Order;
+  loyaltyCard?: LoyaltyCard;
+  rawCode: string;
+}
+
+export interface Receipt {
+  orderNumber: string;
+  data: Record<string, any>;
+  links: { html: string; pdf: string };
+}
+
+export interface KitchenTicketItem {
+  id: string;
+  name: string;
+  variantName?: string;
+  modifiers: string[];
+  quantity: number;
+}
+
+export interface KitchenTicket {
+  orderId: string;
+  orderNumber: string;
+  status: OrderStatus;
+  tableLabel?: string;
+  scheduledFor?: string;
+  items: KitchenTicketItem[];
+  waitingMinutes: number;
+  arrivalAlert?: boolean;
+  createdAt: string;
+}
+
+export interface FlashSale {
+  id: string;
+  businessId: string;
+  businessName: string;
+  title: string;
+  discountPercent: number;
+  radiusM: number;
+  endsAt: string;
+  maxClaims?: number | null;
+  claimsCount: number;
+  isClaimed?: boolean;
+  discountAmount?: number;
+}
+
+export interface StoryProductTag {
+  productId: string;
+  productName?: string;
+  price?: number;
+  x: number;
+  y: number;
+}
+
+export interface ShopStory {
+  id: string;
+  businessId: string;
+  businessName: string;
+  businessLogo?: string;
+  mediaUrl: string;
+  tags: StoryProductTag[];
+  isHighlight: boolean;
+  highlightTitle?: string;
+  createdAt: string;
+}
+
+export interface AdCampaignDaily {
+  date: string;
+  impressions: number;
+  clicks: number;
+  spend: number;
+}
+
+export interface AdCampaign {
+  id: string;
+  placement: 'pin' | 'feed' | 'both';
+  radiusKm: number;
+  dailyBudget: number;
+  days: number;
+  status: 'active' | 'paused' | 'completed';
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  spend: number;
+  dailyStats?: AdCampaignDaily[];
+  createdAt: string;
+}
+
+export interface SponsoredItem {
+  campaignId: string;
+  business: Business;
+  placement: 'feed' | 'pin';
+}
+
+export interface AreaInsights {
+  busyHours: { hour: number; count: number }[];
+  weekdayActivity: { day: string; count: number }[];
+  topSearches: { query: string; count: number }[];
+  hasEnoughData: boolean;
+}
+
+export interface ShopTip {
+  id: string;
+  kind: 'rain' | 'heat' | 'cold' | 'event' | 'general';
+  title: string;
+  body: string;
+  forDate?: string;
+  isDismissed: boolean;
+}
+
+export interface SpecialistTimeOff {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  reason?: string;
+}
+
+export interface Specialist {
+  id: string;
+  name: string;
+  title?: string;
+  avatarUrl?: string;
+  workingHours?: OpeningHours | null;
+  timeOff?: SpecialistTimeOff[];
+}
+
+export interface Service {
+  id: string;
+  businessId: string;
+  name: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  price: number;
+  depositType: 'none' | 'percent' | 'full';
+  depositValue: number;
+  cancelHours: number;
+  lateCancelRefundPercent: number;
+  specialists: Specialist[];
+}
+
+export interface BookingSlot {
+  time: string;
+  specialists: { id: string; name: string }[];
+  isAvailable: boolean;
+}
+
+export type BookingStatus = 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+
+export interface Booking {
+  id: string;
+  number: string;
+  businessId: string;
+  businessName: string;
+  service: { id: string; name: string; durationMinutes: number; price: number };
+  specialist?: { id: string; name: string } | null;
+  startsAt: string;
+  endsAt: string;
+  status: BookingStatus;
+  depositAmount: number;
+  totalAmount: number;
+  freeCancellationUntil?: string;
+  canCancel: boolean;
+  canReschedule: boolean;
+  createdAt: string;
+}
+
+export interface Analytics {
+  gmv: number;
+  netSales: number;
+  aov: number;
+  repeatCustomerRate: number;
+  cancellationRate: number;
+  revenueSeries: { date: string; revenue: number }[];
+  topProducts: { productId: string; name: string; quantity: number; revenue: number }[];
+  orderTypeSplit: Record<string, number>;
+  paymentMethodSplit: Record<string, number>;
+  compareChange?: { gmvPercent: number; netSalesPercent: number; aovPercent: number };
+}
+
+export interface PayoutRecord {
+  id: string;
+  amount: number;
+  reference?: string;
+  status: string;
+  paidAt: string;
+}
+
+export interface FinanceSummary {
+  availableBalance: number;
+  pendingBalance: number;
+  commissionPercent: number;
+  totalPaidOut: number;
+  payouts: PayoutRecord[];
+}
+
+export interface PayoutAccount {
+  id?: string;
+  type: 'bank' | 'upi';
+  holderName: string;
+  maskedAccount: string;
+  ifscOrVpa: string;
+  isVerified: boolean;
+}
+
+export interface CourierQuote {
+  quoteId: string;
+  provider: string;
+  fee: number;
+  estimatedMinutes: number;
+}
+
+export interface CourierDispatch {
+  dispatchId: string;
+  provider: string;
+  trackingUrl?: string;
+  riderName?: string;
+  riderPhone?: string;
+  status: string;
+}
+
+export interface AppConfig {
+  minAppVersion: string;
+  latestAppVersion: string;
+  storeUrls: {
+    android: string;
+    ios: string;
+  };
 }
 
 export interface BusinessStats {

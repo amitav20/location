@@ -36,8 +36,37 @@ import {
   ShoppingBag,
   Star,
   Tag,
-  Trash2
+  Trash2,
+  ChefHat,
+  Barcode,
+  QrCode,
+  Users,
+  Settings,
+  Sparkles,
+  Receipt as ReceiptIcon,
+  Car,
+  Landmark,
+  Award,
+  Flame,
+  CalendarDays,
+  Truck,
+  MessageSquare
 } from 'lucide-react';
+
+import { StaffManagerModal } from './StaffManagerModal';
+import { TablesManagerModal } from './TablesManagerModal';
+import { ScannerModal } from './ScannerModal';
+import { ReceiptModal } from './ReceiptModal';
+import { KitchenDisplayModal } from './KitchenDisplayModal';
+import { OrderingSettingsModal } from './OrderingSettingsModal';
+import { CatalogImportModal } from './CatalogImportModal';
+import { FinanceModal } from './FinanceModal';
+import { ArrivalsModal } from './ArrivalsModal';
+import { LiveTrackingModal } from './LiveTrackingModal';
+import { ReviewsManagerModal } from './ReviewsManagerModal';
+import { LoyaltyManagerModal } from './LoyaltyManagerModal';
+import { FlashSaleModal } from './FlashSaleModal';
+import { BookingsManagerModal } from './BookingsManagerModal';
 
 const LocationPicker = lazy(() => import('../common/LocationPicker').then((m) => ({ default: m.LocationPicker })));
 
@@ -88,6 +117,7 @@ const THEME_VIBES: { value: ThemeVibe; label: string; color: string }[] = [
 const STATUS_STYLES: Record<OrderStatus, string> = {
   pending: 'bg-amber-100 text-amber-700',
   processing: 'bg-sky-100 text-sky-700',
+  ready: 'bg-emerald-100 text-emerald-700',
   shipped: 'bg-indigo-100 text-indigo-700',
   delivered: 'bg-teal-100 text-teal-700',
   cancelled: 'bg-gray-200 text-gray-600'
@@ -344,6 +374,22 @@ export function BusinessDashboard({ currentUser, triggerNotificationRefresh }: B
   const [settingsForm, setSettingsForm] = useState<ShopFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Advanced Shop Tool Modals
+  const [showStaffModal, setShowStaffModal] = useState<boolean>(false);
+  const [showTablesModal, setShowTablesModal] = useState<boolean>(false);
+  const [showScannerModal, setShowScannerModal] = useState<boolean>(false);
+  const [showKitchenModal, setShowKitchenModal] = useState<boolean>(false);
+  const [showOrderingSettingsModal, setShowOrderingSettingsModal] = useState<boolean>(false);
+  const [showCatalogImportModal, setShowCatalogImportModal] = useState<boolean>(false);
+  const [showFinanceModal, setShowFinanceModal] = useState<boolean>(false);
+  const [showArrivalsModal, setShowArrivalsModal] = useState<boolean>(false);
+  const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [showReviewsModal, setShowReviewsModal] = useState<boolean>(false);
+  const [showLoyaltyModal, setShowLoyaltyModal] = useState<boolean>(false);
+  const [showFlashSaleModal, setShowFlashSaleModal] = useState<boolean>(false);
+  const [showBookingsModal, setShowBookingsModal] = useState<boolean>(false);
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
 
   // New offer
   const [offerTitle, setOfferTitle] = useState('');
@@ -723,12 +769,91 @@ export function BusinessDashboard({ currentUser, triggerNotificationRefresh }: B
               {activeBusiness.phone} · {activeBusiness.email}
             </p>
           </div>
-          <button
-            onClick={() => setSettingsForm(shopFormFrom(activeBusiness))}
-            className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-sm font-semibold shrink-0"
-          >
-            Edit shop
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowOrderingSettingsModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Settings size={13} className="text-teal-600" /> Ordering & Zones
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowStaffModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Users size={13} className="text-sky-600" /> Staff & Roles
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTablesModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <QrCode size={13} className="text-amber-600" /> Tables & QR
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowKitchenModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <ChefHat size={13} className="text-orange-600" /> Kitchen KDS
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowScannerModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Barcode size={13} className="text-purple-600" /> Scanner
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFinanceModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Landmark size={13} className="text-emerald-600" /> Finance & Payouts
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowArrivalsModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Car size={13} className="text-blue-600" /> Curbside Arrivals
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReviewsModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <MessageSquare size={13} className="text-indigo-600" /> Reviews & AI
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowLoyaltyModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Award size={13} className="text-amber-600" /> Loyalty & Stamps
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowFlashSaleModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <Flame size={13} className="text-orange-600" /> Flash Sales
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBookingsModal(true)}
+              className="px-3 py-1.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            >
+              <CalendarDays size={13} className="text-cyan-600" /> Appointments
+            </button>
+            <button
+              onClick={() => setSettingsForm(shopFormFrom(activeBusiness))}
+              className="px-4 py-1.5 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer"
+            >
+              Edit Shop
+            </button>
+          </div>
         </div>
       </div>
 
@@ -738,23 +863,32 @@ export function BusinessDashboard({ currentUser, triggerNotificationRefresh }: B
           <section className={cardClass}>
             <div className="flex justify-between items-center">
               <h4 className="font-bold text-gray-800">Products ({products.length})</h4>
-              <button
-                onClick={() =>
-                  setProductForm({
-                    name: '',
-                    description: '',
-                    price: '',
-                    category: 'General',
-                    stock: '10',
-                    isActive: true,
-                    image: '',
-                    originalImage: ''
-                  })
-                }
-                className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs"
-              >
-                <Plus size={13} /> Add product
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCatalogImportModal(true)}
+                  className="px-3 py-1.5 rounded-xl border border-teal-600 bg-teal-50 text-teal-800 hover:bg-teal-100 text-xs font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                >
+                  <Sparkles size={13} className="text-teal-700" /> Import & AI
+                </button>
+                <button
+                  onClick={() =>
+                    setProductForm({
+                      name: '',
+                      description: '',
+                      price: '',
+                      category: 'General',
+                      stock: '10',
+                      isActive: true,
+                      image: '',
+                      originalImage: ''
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+                >
+                  <Plus size={13} /> Add product
+                </button>
+              </div>
             </div>
             {products.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-6">No products yet.</p>
@@ -890,21 +1024,37 @@ export function BusinessDashboard({ currentUser, triggerNotificationRefresh }: B
                       <span>Total {o.promoCode ? `(code ${o.promoCode})` : ''}</span>
                       <span className="text-teal-700">{money(o.totalAmount)}</span>
                     </div>
-                    {o.nextStatuses && o.nextStatuses.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {o.nextStatuses.map((st) => (
+                    <div className="flex flex-wrap gap-1.5 pt-1 items-center justify-between">
+                      <div className="flex flex-wrap gap-1.5">
+                        {o.nextStatuses && o.nextStatuses.length > 0 && o.nextStatuses.map((st) => (
                           <button
                             key={st}
                             onClick={() => updateOrderStatus(o, st)}
                             className={`px-2.5 py-1 rounded-lg text-xs font-semibold border ${
                               st === 'cancelled' ? 'border-gray-200 text-red-600 hover:bg-red-50' : 'border-gray-200 text-gray-700 hover:bg-white'
-                            } bg-white shadow-2xs`}
+                            } bg-white shadow-2xs cursor-pointer`}
                           >
                             Mark {st}
                           </button>
                         ))}
                       </div>
-                    )}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setTrackingOrderId(o.id)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold border border-gray-200 text-sky-800 hover:bg-sky-50 bg-sky-50/40 shadow-2xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Truck size={12} className="text-sky-600" /> Track
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReceiptOrderId(o.id)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold border border-gray-200 text-teal-800 hover:bg-teal-50 bg-teal-50/40 shadow-2xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <ReceiptIcon size={12} className="text-teal-600" /> Receipt
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1008,6 +1158,117 @@ export function BusinessDashboard({ currentUser, triggerNotificationRefresh }: B
             </div>
           </form>
         </div>
+      )}
+
+      {/* Advanced Shop Modals */}
+      {showStaffModal && activeBusiness && (
+        <StaffManagerModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowStaffModal(false)}
+        />
+      )}
+
+      {showTablesModal && activeBusiness && (
+        <TablesManagerModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowTablesModal(false)}
+        />
+      )}
+
+      {showScannerModal && activeBusiness && (
+        <ScannerModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowScannerModal(false)}
+          onOrderUpdated={() => loadShopDetails(activeBusiness.id)}
+        />
+      )}
+
+      {showKitchenModal && activeBusiness && (
+        <KitchenDisplayModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowKitchenModal(false)}
+        />
+      )}
+
+      {showOrderingSettingsModal && activeBusiness && (
+        <OrderingSettingsModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowOrderingSettingsModal(false)}
+        />
+      )}
+
+      {showCatalogImportModal && activeBusiness && (
+        <CatalogImportModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowCatalogImportModal(false)}
+          onCatalogUpdated={() => loadShopDetails(activeBusiness.id)}
+        />
+      )}
+
+      {showFinanceModal && activeBusiness && (
+        <FinanceModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowFinanceModal(false)}
+        />
+      )}
+
+      {showArrivalsModal && activeBusiness && (
+        <ArrivalsModal
+          businessId={activeBusiness.id}
+          onClose={() => setShowArrivalsModal(false)}
+        />
+      )}
+
+      {receiptOrderId && (
+        <ReceiptModal
+          orderId={receiptOrderId}
+          onClose={() => setReceiptOrderId(null)}
+        />
+      )}
+
+      {trackingOrderId && (
+        <LiveTrackingModal
+          orderId={trackingOrderId}
+          isOpen={!!trackingOrderId}
+          onClose={() => setTrackingOrderId(null)}
+          businessName={activeBusiness?.name}
+        />
+      )}
+
+      {showReviewsModal && activeBusiness && (
+        <ReviewsManagerModal
+          businessId={activeBusiness.id}
+          businessName={activeBusiness.name}
+          isOpen={showReviewsModal}
+          onClose={() => setShowReviewsModal(false)}
+        />
+      )}
+
+      {showLoyaltyModal && activeBusiness && (
+        <LoyaltyManagerModal
+          businessId={activeBusiness.id}
+          businessName={activeBusiness.name}
+          isOpen={showLoyaltyModal}
+          onClose={() => setShowLoyaltyModal(false)}
+        />
+      )}
+
+      {showFlashSaleModal && activeBusiness && (
+        <FlashSaleModal
+          businessId={activeBusiness.id}
+          businessName={activeBusiness.name}
+          isOpen={showFlashSaleModal}
+          onClose={() => setShowFlashSaleModal(false)}
+        />
+      )}
+
+      {showBookingsModal && activeBusiness && (
+        <BookingsManagerModal
+          businessId={activeBusiness.id}
+          businessName={activeBusiness.name}
+          isOpen={showBookingsModal}
+          onClose={() => setShowBookingsModal(false)}
+        />
       )}
     </div>
   );
